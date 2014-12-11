@@ -1,0 +1,122 @@
+-- @path BR=/Xbrex/metamodels/brmodel.ecore
+-- @path PORT=/prototype/metamodels/PortolanCore.ecore
+
+module rules2rulePartsPortolan;
+create OUT : PORT from IN : BR;
+
+helper context BR!RulePart def : getNext : Sequence(BR!RulePart) =
+	let ruleParts : Sequence(BR!RulePart) = self.refImmediateComposite().ruleParts in
+	if ruleParts->select(rp | ruleParts->indexOf(rp) > ruleParts->indexOf(self))->isEmpty() then
+		Sequence{}
+	else
+		Sequence{ruleParts->select(rp | ruleParts->indexOf(rp) > ruleParts->indexOf(self))->first()}
+	endif;
+
+helper context BR!RulePart def : getPrev : Sequence(BR!RulePart) =
+	let ruleParts : Sequence(BR!RulePart) = self.refImmediateComposite().ruleParts in
+	if ruleParts->select(rp | ruleParts->indexOf(rp) < ruleParts->indexOf(self))->isEmpty() then
+		Sequence{}
+	else
+		Sequence{ruleParts->select(rp | ruleParts->indexOf(rp) < ruleParts->indexOf(self))->last()}
+	endif;
+
+helper def : ALL_RULE_PARTS : Sequence(BR!RulePart) = BR!RulePart.allInstances();
+
+helper context BR!RulePart def : isSharedBetweenRules : Sequence(BR!RulePart) =
+	thisModule.ALL_RULE_PARTS->select(br | br.getContent = self.getContent)->size() >= 2;
+
+helper context BR!RulePart def : getRulePartsSharedBetweenRules : Sequence(BR!RulePart) =
+	thisModule.ALL_RULE_PARTS->select(br | br.getContent = self.getContent)->reject(br | br = self);
+
+helper context BR!RulePart def : getInfo(var : String, id : String) : String =
+	'var:' + var + ' id:'+ id + 'granularity:' + self.granularity + '\n' +
+	'class:' + self.relatedMethod.class + ' method:' + self.relatedMethod.name + '\n' +
+	self.getContent;
+
+helper context BR!RulePart def : getContent : String =
+	self.relatedStatements->iterate(relStat; output : String = '' | 
+		output->concat(relStat.textContent + '\n')
+	)->concat(self.action.textContent);
+
+rule Model2Megamodel {
+	from
+		s : BR!Model
+	to
+		t : PORT!Megamodel (
+			ownedElements <- s.rules->collect(r | r.ruleParts)->flatten()
+								->union(s.rules->collect(r | r.ruleParts)->flatten()
+									->select(rp | rp.getNext->notEmpty())
+										->collect(rp | thisModule.RulePart2NextDirectedRelationship(rp)))
+								->union(s.rules->collect(r | r.ruleParts)->flatten()
+									->select(rp | rp.getPrev->notEmpty())
+										->collect(rp | thisModule.RulePart2PrevDirectedRelationship(rp)))
+								->union(s.rules->collect(r | r.ruleParts)->flatten()
+									->select(rp | rp.isSharedBetweenRules)
+										->collect(rp | thisModule.ConnectingRulePartsOfDifferentRules(rp)))
+		)
+}
+
+rule RulePart2Entity {
+	from
+		s : BR!RulePart
+	to
+		t : PORT!Entity (
+			__id <- 'VAR_' + s.refImmediateComposite().slicedVariable.name + '_ID_' + s.refImmediateComposite().id + '_G_' + s.granularity,
+			identifier <- identifier,
+			metadata <- Sequence{meta}
+		),
+		identifier : PORT!Identifier (
+			value <- s.getInfo(s.refImmediateComposite().slicedVariable.name, s.refImmediateComposite().id)
+		),
+		meta : PORT!Metadata (
+			key <- 'color',
+			value <- 'VAR_' + s.refImmediateComposite().slicedVariable.name + '_ID_' + s.refImmediateComposite().id
+		)
+}
+
+lazy rule RulePart2NextDirectedRelationship {
+	from
+		s: BR!RulePart
+	to
+		t : PORT!DirectedRelationship (
+			source <- Sequence{s},
+			target <- s.getNext,
+			identifier <- identifier
+		),
+		identifier : PORT!Identifier (
+			value <- 'directed'	
+		)
+}
+
+lazy rule RulePart2PrevDirectedRelationship {
+	from
+		s: BR!RulePart
+	to
+		t : PORT!DirectedRelationship (
+			source <- s.getPrev,
+			target <- Sequence{s},
+			identifier <- identifier
+		),
+		identifier : PORT!Identifier (
+			value <- 'directed'	
+		)
+}
+
+lazy rule ConnectingRulePartsOfDifferentRules {
+	from
+		s : BR!RulePart
+	to
+		t : PORT!DirectedRelationship (
+			source <- Sequence{s},
+			target <- s.getRulePartsSharedBetweenRules,
+			identifier <- identifier,
+			metadata <- Sequence{meta}
+		),
+		identifier : PORT!Identifier (
+			value <- 'connectingdifferentrules'	
+		),
+		meta : PORT!Metadata (
+			key <- 'color',
+			value <- 'connectingdifferentrules'
+		)
+}

@@ -1,0 +1,912 @@
+-- @atlcompiler	atl2010
+-- @path JAVA=/FoxesAndRabbitsAT/metamodels/java.ecore
+
+module annotatingcode;
+create OUT : JAVA refining IN : JAVA;
+
+---START RULE Model
+helper def : VariableSelection : String = 'SELECT-VARIABLE';
+helper def : SlicedVariable : String = 'SV';--'SLICED-VARIABLE';
+helper def : RelatedVariable : String = 'RelV';--'RELATED-VARIABLE';
+helper def : ReachableVariable : String = 'ReaV';--REACHABLE-VARIABLE';
+helper def : Comment : String = '//';
+helper def : Points : String = ':';
+helper def : Rule : String = 'R';--'Rule';
+helper def : Separator : String = '_';
+helper def : Granularity : String = 'G';--'Granularity';
+helper def : ReachableMethod : String = 'ReaMethod'; --'REACHABLE-METHOD';
+helper def : RelatedMethod : String = 'RelMethod'; --'RELATED-METHOD';
+helper def : RelatedStatement : String = 'RelStat'; --'RELATED-STATEMENT';
+helper def : Distance : String = 'D';--'Distance';
+
+helper def : ALL_ABSTRACT_VARIABLES_CONTAINER : Sequence(JAVA!AbstractVariablesContainer) = JAVA!AbstractVariablesContainer.allInstances();
+helper def : ALL_STATEMENTS : Sequence(JAVA!Statement) = JAVA!Statement.allInstances();
+helper def : ALL_CLASS_DECLARATION : Sequence(JAVA!ClassDeclaration) = JAVA!ClassDeclaration.allInstances();
+--helper def : ALL_INTERFACE_DECLARATION : Sequence(JAVA!InterfaceDeclaration) = JAVA!InterfaceDeclaration.allInstances();
+helper def : ALL_SINGLE_VARIABLE_ACCESS : Sequence(JAVA!SingleVariableAccess) = JAVA!SingleVariableAccess.allInstances();
+helper def : ALL_ABSTRACT_METHOD_INVOCATION : Sequence(JAVA!AbstractMethodInvocation) = JAVA!AbstractMethodInvocation.allInstances();
+
+helper def : getAllSelectedVariables : Sequence(JAVA!AbstractVariableContainer) =
+	thisModule.ALL_ABSTRACT_VARIABLES_CONTAINER->select(avc | avc.comments->exists(comm | comm.content = thisModule.Comment + thisModule.VariableSelection));
+
+helper context OclAny def : isInAPostfixExpression : Boolean =
+	if self.oclIsTypeOf(JAVA!PostfixExpression) then
+		true
+	else
+		if self.oclIsKindOf(JAVA!Statement) then
+			false
+		else
+			self.refImmediateComposite().isInAPostfixExpression
+		endif
+	endif;
+
+--check if an element is inside an if condition
+helper context OclAny def : isInsideIfCondition : Boolean =
+	if self.oclIsKindOf(JAVA!Expression) then
+		if self.refImmediateComposite().oclIsTypeOf(JAVA!IfStatement) then
+			true
+		else
+			self.refImmediateComposite().isInsideIfCondition
+		endif
+	else
+		if self.oclIsKindOf(JAVA!AbstractMethodDeclaration) or self.oclIsTypeOf(JAVA!Package) or self.oclIsTypeOf(JAVA!Model) then
+			false
+		else
+			self.refImmediateComposite().isInsideIfCondition
+		endif
+	endif;
+
+--check if an element appears in the left part of an assignment
+helper context OclAny def : isInTheLeftHandSideOfAssignment : Boolean =
+	if self.refImmediateComposite().oclIsTypeOf(JAVA!Assignment) then
+		self.refImmediateComposite().leftHandSide = self
+	else
+		if self.oclIsKindOf(JAVA!Statement) then
+			false
+		else
+			self.refImmediateComposite().isInTheLeftHandSideOfAssignment
+		endif
+	endif;
+
+--helper context OclAny def : isInAMethodInvocation : Boolean =
+--	if self.oclIsKindOf(JAVA!AbstractMethodInvocation) then
+--		true
+--	else
+--		if self.oclIsKindOf(JAVA!Statement) then
+--			false
+--		else
+--			self.refImmediateComposite().isInAMethodInvocation
+--		endif
+--	endif;
+
+--get the first statement containing the element
+helper context OclAny def : getContainingStatement : JAVA!Statement =
+	if self.oclIsKindOf(JAVA!Statement) then
+		self
+	else
+		if self.oclIsKindOf(JAVA!AbstractMethodDeclaration) or self.oclIsTypeOf(JAVA!Package) or self.oclIsTypeOf(JAVA!Model) then
+			OclUndefined
+		else
+			self.refImmediateComposite().getContainingStatement
+		endif
+	endif;
+
+--get the abstract method declaration containing the element
+helper context OclAny def : getAbstractMethodDeclaration : JAVA!AbstractMethodDeclaration =
+	if self.oclIsKindOf(JAVA!AbstractMethodDeclaration) then
+		self
+	else
+		if self.oclIsKindOf(JAVA!AbstractTypeDeclaration) or self.oclIsTypeOf(JAVA!Package) or self.oclIsTypeOf(JAVA!Model) then
+			OclUndefined
+		else
+			self.refImmediateComposite().getAbstractMethodDeclaration
+		endif
+	endif;
+
+helper context OclAny def : getClassDeclaration : JAVA!ClassDeclaration =
+	if self.oclIsKindOf(JAVA!ClassDeclaration) then
+		self
+	else
+		if self.oclIsTypeOf(JAVA!Package) then
+			OclUndefined
+		else
+			self.refImmediateComposite().getClassDeclaration
+		endif
+	endif;
+
+--get the associated references to the selected variable
+helper def : getUsageVariableAccess : Sequence(JAVA!Statement) =
+	thisModule.getAllSelectedVariables->collect(fd | fd.fragments)->flatten()
+											->collect(frg | frg.usageInVariableAccess)->flatten()
+												->reject(var | var.isInsideIfCondition)
+													->select(var | var.isInTheLeftHandSideOfAssignment or var.isInAPostfixExpression)
+														->reject(o | o.oclIsUndefined()); --or var.isInAMethodInvocation);
+
+--get the statements containing the slicing variable references
+helper def : getSelectedStatements : Sequence(JAVA!Statement) =
+	thisModule.getUsageVariableAccess->collect(var | var.getContainingStatement)->reject(o | o.oclIsUndefined());
+
+helper context JAVA!Statement def : getVariableName : String = 
+	thisModule.getUsageVariableAccess->select(var | var.getContainingStatement = self)->first().variable.name;
+
+--trasform a sequence(any) in a sequence(sequence(abstract method declaration of any,any))
+--input:  Sequence(stat-a, stat-b, stat-c)
+--output: Sequence(
+--				Sequence(md-a, stat-a),
+--				Sequence(md-b, stat-b),
+--				Sequence(md-c, stat-c)
+--			)
+helper def : nestSequence(input : Sequence(OclAny)) : Sequence(OclAny) =
+	input->collect(e | Sequence{e.getAbstractMethodDeclaration,e});
+
+--helper context JAVA!AbstractMethodDeclaration def : isInsideAnInterface(class : JAVA!AbstractTypeDeclaration) : JAVA!AbstractMethodDeclaration =
+--	thisModule.ALL_INTERFACE_DECLARATION->select(inter | inter.usagesInTypeAccess->exists(usage | class.superInterfaces->exists(super_inter | super_inter = usage)))
+--													->collect(inter | inter.bodyDeclarations)->flatten()
+--														->select(bd | bd.name = self.name)
+--															->select(bd | bd.parameters->size() = self.parameters->size())
+--																->select(bd | bd.typeParameters->forAll(tp | self.typeParameters->exists(stp | stp.oclType() = tp.oclType())))
+--																	->select(bd | bd.thrownExceptions->forAll(te | self.thrownExceptions->exists(ste | ste.oclType() = te.oclType())))->first();
+
+--retrieve the associated interface abstract method declaration of a class abstract method declaration
+helper context JAVA!AbstractMethodDeclaration def : getInterfaceAbstractMethodDeclaration : Sequence(JAVA!AbstractMethodDeclaration) =
+	let class : JAVA!ClassDeclaration = self.getClassDeclaration in
+	if not class.oclIsUndefined() then
+		if not class.superInterfaces->isEmpty() then
+			class.superInterfaces->collect(inter | inter.type.bodyDeclarations)->flatten()
+									->select(bd | bd.name = self.name)
+										->select(bd | bd.parameters->size() = self.parameters->size())
+											->select(bd | bd.typeParameters->forAll(tp | self.typeParameters->exists(stp | stp.oclType() = tp.oclType())))
+												->select(bd | bd.thrownExceptions->forAll(te | self.thrownExceptions->exists(ste | ste.oclType() = te.oclType())))
+		else
+			Sequence{}
+		endif
+	else
+		Sequence{}
+	endif;
+	
+--	let class : JAVA!ClassDeclaration = self.getClassDeclaration in
+--	if class.oclIsUndefined() then
+--		Sequence{}
+--	else
+--		thisModule.ALL_INTERFACE_DECLARATION->reject(id | id.proxy = true)
+--												->select(id | class.superInterfaces->exists(si | si.type = id))--.debug(class.name + ' ' + self.name)
+--													->collect(inter | inter.bodyDeclarations)->flatten()
+--														->select(bd | bd.name = self.name)
+--															->select(bd | bd.parameters->size() = self.parameters->size())
+--																->select(bd | bd.typeParameters->forAll(tp | self.typeParameters->exists(stp | stp.oclType() = tp.oclType())))
+--																	->select(bd | bd.thrownExceptions->forAll(te | self.thrownExceptions->exists(ste | ste.oclType() = te.oclType())))
+--	endif;
+
+-- old implementation	
+--	thisModule.ALL_INTERFACE_DECLARATION->reject(id | id.proxy = true)
+--											->collect(inter | inter.bodyDeclarations)->flatten()
+--												->select(bd | bd.name = self.name)
+--													->select(bd | bd.parameters->size() = self.parameters->size())
+--														->select(bd | bd.typeParameters->forAll(tp | self.typeParameters->exists(stp | stp.oclType() = tp.oclType())))
+--															->select(bd | bd.thrownExceptions->forAll(te | self.thrownExceptions->exists(ste | ste.oclType() = te.oclType())));
+-- old old implementation
+--	if any.oclIsTypeOf(JAVA!ClassDeclaration) then	
+--		if any.superInterfaces->isEmpty() and any.superClass.oclIsUndefined() then
+--			OclUndefined
+--		else
+--			if any.superInterfaces->notEmpty() and any.superClass.oclIsUndefined() then
+--				if not self.isInsideAnInterface(any).oclIsUndefined() then
+--					self.isInsideAnInterface(any)
+--				else
+--					if any.superInterfaces->isEmpty() and not any.superClass.oclIsUndefined() then
+--						let super_class : JAVA!ClassDeclaration = thisModule.ALL_CLASS_DECLARATION->select(c | c.usagesInTypeAccess->exists(ta | ta = any.superClass))->first() in
+--						self.getInterfaceAbstractMethodDeclaration(super_class)
+--					else
+--						OclUndefined
+--					endif
+--				endif
+--			else
+--				if any.superInterfaces->isEmpty() and not any.superClass.oclIsUndefined() then
+--					let super_class : JAVA!ClassDeclaration = thisModule.ALL_CLASS_DECLARATION->select(c | c.usagesInTypeAccess->exists(ta | ta = any.superClass))->first() in
+--					self.getInterfaceAbstractMethodDeclaration(super_class)
+--				else
+--					OclUndefined
+--				endif
+--			endif
+--		endif
+--	else
+--		if any.superInterfaces->notEmpty() then
+--			let super_ : JAVA!AbstractTypeDeclaration = thisModule.ALL_INTERFACE_DECLARATION
+--																		->select(i | i.usagesInTypeAccess->exists(ta | any.superInterfaces->exists(si | si = ta)))
+--																			->select(i | i.bodyDeclarations->exists(bd | bd.name = self.name))->first() in
+--			if not super_.debug(' 0 ' + any.name + ' ' + self.name).oclIsUndefined() then
+--				self.debug(' 1 ' + any.name + ' ' + self.name).getInterfaceAbstractMethodDeclaration(super_)
+--			else
+--				any.debug(' 2 ' + any.name + ' ' + self.name).bodyDeclarations->select(bd | bd.name = self.name)
+--								->select(bd | bd.parameters->size() = self.parameters->size())
+--									->select(bd | bd.typeParameters->forAll(tp | self.typeParameters->exists(stp | stp.oclType() = tp.oclType())))
+--										->select(bd | bd.thrownExceptions->forAll(te | self.thrownExceptions->exists(ste | ste.oclType() = te.oclType())))->first()
+--			endif
+--		else
+--			any.debug(' 3 ' + any.name).bodyDeclarations->select(bd | bd.name = self.name)
+--								->select(bd | bd.parameters->size() = self.parameters->size())
+--									->select(bd | bd.typeParameters->forAll(tp | self.typeParameters->exists(stp | stp.oclType() = tp.oclType())))
+--										->select(bd | bd.thrownExceptions->forAll(te | self.thrownExceptions->exists(ste | ste.oclType() = te.oclType())))->first()
+--		endif
+--	endif;
+
+--input:  Sequence{ 
+--					Sequence{md-a,mi11, md11, mi12, md12,..,stat1} 
+--					Sequence{md-b, mi21, md21, mi22, md22,...,stat2} 
+--					.. 
+--					Sequence{md-c, mi31, md31, mi32, md32..stat3} }
+--output: Sequence{ 
+--					Sequence{mi1-a, md-a, mi11, md11, mi12, md12,..,stat1} 
+--					Sequence{mi2-a, md-a, mi11, md11, mi12, md12,..,stat1} 
+--					Sequence{mi1-b, md-b, mi21, md21, mi22, md22,...,stat2} 
+--					.. 
+--					Sequence{mi-bn, md-b, mi21, md21, mi22, md22,...,stat2} ... 
+--				}
+--old implementation
+--helper def : split(input : Sequence(OclAny)) : Sequence(OclAny) =
+--	if input->forAll(e | e->first().usages->isEmpty()) and input->forAll(e | e->first().getInterfaceAbstractMethodDeclaration.oclIsUndefined()) then
+--		input->asSet()->asSequence()
+--	else
+--		input->iterate(e ; app1 : Sequence(OclAny) = Sequence{} |
+--			if e->first().usages->isEmpty() then
+--				--if the class implements an interface and exist a method with the same name than add it in the list
+--				if not e->first().debug(e->first().name).getInterfaceAbstractMethodDeclaration.oclIsUndefined() then
+--					e->first().getInterfaceAbstractMethodDeclaration.usages->iterate(u ; app2 : Sequence(OclAny) = app1 |
+--						thisModule.addContainerMethod(app2->including(e->prepend(u)))
+--				)
+--				else
+--					app1->including(e)->asSet()->asSequence()
+--				endif
+--			else  
+--				e->first().usages
+--					-- 31 jan 2012 removing recursion problem
+--					->reject(u | u.getAbstractMethodDeclaration = e->first())
+--				->iterate(u ; app2 : Sequence(OclAny) = app1 |
+--					thisModule.addContainerMethod(app2->including(e->prepend(u)))
+--				)
+--			endif
+--		)
+--	endif;
+
+--new implementation
+helper def : split(input : Sequence(OclAny)) : Sequence(OclAny) =
+	if input->forAll(e | e->first().usages->isEmpty() and e->first().getInterfaceAbstractMethodDeclaration->isEmpty()) then
+		input->asSet()->asSequence()
+	else
+		input->iterate(e ; app1 : Sequence(OclAny) = Sequence{} |
+			let all_usages : Sequence(JAVA!AbstractMethodInvocation) = 
+																		if e->first().getInterfaceAbstractMethodDeclaration->isEmpty()  then
+																			e->first().usages
+																		else
+																			e->first().usages->union(e->first().getInterfaceAbstractMethodDeclaration->collect(i | i.usages)->flatten())-->flatten()
+																		endif in
+			if all_usages->isEmpty() then
+				app1->including(e)->asSet()->asSequence()
+			else
+				-- 31 jan 2012 removing recursion problem
+				--all_usages->reject(u | u.getAbstractMethodDeclaration = e->first())
+				-- 13 jul 2012
+				all_usages->reject(u | e->exists(any | any = u.getAbstractMethodDeclaration))
+					->iterate(u ; app2 : Sequence(OclAny) = app1 |
+								--12 07 2012
+								app2->including(e->prepend(u)->prepend(u.getAbstractMethodDeclaration))
+								--app2->including(e->prepend(u))
+								--thisModule.addContainerMethod(app2->including(e->prepend(u)))
+							)
+			endif	
+		)
+	endif;
+
+--input:  Sequence{ 
+--					Sequence{mi-a1,md-a,mi11, md11, mi12, md12,..,stat1} 
+--					Sequence{mi-a2,md-a,mi11, md11, mi12, md12,..,stat1} 
+--					... 
+--					}
+--output: Sequence{ 
+--					Sequence{md containing mi-a1,mi-a1, md-a,mi11, md11, mi12, md12,..,stat1} 
+--					Sequence{md containing mi-a2,mi-a2,md-a,mi11, md11, mi12, md12,..,stat1} 
+--					... 
+--					}
+--helper def : addContainerMethod(input : Sequence(OclAny)) : Sequence(OclAny) =
+--	input->iterate(e ; app1 : Sequence(OclAny) = Sequence{} |	
+--		--new implementation 05 jul 2012
+--		--app1->including(e->prepend(e->first().getAbstractMethodDeclaration))
+--		thisModule.split(app1->including(e->prepend(e->first().getAbstractMethodDeclaration)))
+--	);
+
+helper def : splitStart(input : Sequence(OclAny)) : Sequence(OclAny) =
+	if input->forAll(e | e->first().usages->isEmpty() and e->first().getInterfaceAbstractMethodDeclaration->isEmpty()) then
+		input->asSet()->asSequence()
+	else
+		thisModule.splitStart(thisModule.split(input))
+	endif;
+
+--starting method for finding all the rules with their granularities
+helper def : findGranularity : Sequence(OclAny) =
+	--new implementation 05 jul 2012
+	thisModule.splitStart(thisModule.nestSequence(thisModule.getSelectedStatements));
+	--thisModule.split(thisModule.nestSequence(thisModule.getSelectedStatements));
+
+--from the granularity list select only the elements which are statements (first elements) or method invocations
+--input: Sequence{ 
+--					Sequence{mi1-a, md-a, mi11, md11, mi12, md12,..,stat1} 
+--					Sequence{mi2-a, md-a, mi11, md11, mi12, md12,..,stat1} 
+--					Sequence{mi1-b, md-b, mi21, md21, mi22, md22,...,stat2} 
+--					.. 
+--					Sequence{mi-bn, md-b, mi21, md21, mi22, md22,...,stat2} ... 
+--				}
+--output: Sequence{ 
+--					Sequence{stat1-a, stat11, stat12, stat13,..,stat1} 
+--					Sequence{stat2-a, stat21, stat22, stat23,..,stat2} 
+--					Sequence{stat3-a, stat31, stat12, stat13,..,stat1} 
+--					.. 
+--					Sequence{mi-bn, md-b, mi21, md21, mi22, md22,...,stat2} ... 
+--				}
+helper def : getGranularitySequenceStats : Sequence(OclAny) =
+	thisModule.findGranularity->iterate(e1 ; app1 : Sequence(OclAny) = Sequence{} |
+		app1->including(e1->select(any | any.oclIsKindOf(JAVA!AbstractMethodInvocation) or any.oclIsKindOf(JAVA!Statement))
+							->collect(mi | 
+											if mi.oclIsKindOf(JAVA!AbstractMethodInvocation) then
+												mi.getContainingStatement
+											else
+												mi
+											endif
+									)->asSet()->asSequence()
+							)
+	);
+
+--collect all the sequence starting with the same variable name
+--input: stat1, Sequence{ 
+--					Sequence{mi1-a, md-a, mi11, md11, mi12, md12,..,stat1} 
+--					Sequence{mi2-a, md-a, mi11, md11, mi12, md12,..,stat1} 
+--					Sequence{mi1-b, md-b, mi21, md21, mi22, md22,...,stat2} 
+--					.. 
+--					Sequence{mi-bn, md-b, mi21, md21, mi22, md22,...,stat2} ... 
+--				}
+--output: Sequence{
+--					Sequence{mi1-a, md-a, mi11, md11, mi12, md12,..,stat1} 
+--					Sequence{mi2-a, md-a, mi11, md11, mi12, md12,..,stat1} 	
+--				}
+helper context JAVA!Statement def : getGranularitySequenceStatsFromSeed : Sequence(OclAny) =
+	thisModule.findGranularity->iterate(e1 ; app1 : Sequence(OclAny) = Sequence{} |
+		if e1->last().getVariableName = self.getVariableName then
+			app1->including(e1)
+		else
+			app1
+		endif
+	);
+
+--the map is used to assign an id to each rule gathered
+--input: Sequence{ 
+--					Sequence{mi1-a, md-a, mi11, md11, mi12, md12,..,stat1} 
+--					Sequence{mi2-a, md-a, mi11, md11, mi12, md12,..,stat1} 
+--					Sequence{mi1-b, md-b, mi21, md21, mi22, md22,...,stat2} 
+--					.. 
+--					Sequence{mi-bn, md-b, mi21, md21, mi22, md22,...,stat2} ... 
+--				}
+--output: Map{
+--				Rule_variablename_counter1, Sequence{stat11, stat12, stat13,..,stat1} 
+--				Rule_variablename_counter2,	Sequence{stat21, stat22, stat23,..,stat2} 
+--				Rule_variablename_counter3,	Sequence{ stat1a1, stat1a2, stat1a3,..,stat1a}
+--				...
+--				Rule_variablename_countern,	Sequence{ statn1, statn2, statn3,..,statn}
+--			}
+helper def : getGranularityMapStats : Map(OclAny,OclAny) = -- e1->last().getGranularitySequenceStatsFromSeed()->indexOf(e1) --thisModule.findGranularity->indexOf(e1)
+	thisModule.findGranularity->iterate(e1 ; map1 : Map(String,Sequence(OclAny)) = Map{} | --
+		map1->including(
+						thisModule.Rule + thisModule.Separator + e1->last().getVariableName + thisModule.Separator + e1->last().getGranularitySequenceStatsFromSeed->indexOf(e1),
+						e1->select(any | any.oclIsKindOf(JAVA!AbstractMethodInvocation) or any.oclIsKindOf(JAVA!Statement))
+								->collect(mi | 
+										if mi.oclIsKindOf(JAVA!AbstractMethodInvocation) then
+											mi.getContainingStatement
+										else
+											mi
+										endif
+								)
+						)
+	);
+
+--check if a statement belongs to the granularity set
+helper context JAVA!Statement def : isInGranularitySet : Boolean =
+	thisModule.getGranularitySequenceStats->flatten()->exists(stat | stat = self);
+
+--generate information for each rule, keeping track of the granularity level
+helper context JAVA!Statement def : getIDsAndGranularityInformation : Sequence(String) =
+	let map : Map(OclAny, OclAny) = thisModule.getGranularityMapStats in
+	map->getValues()
+		->iterate(e ; values : Sequence(String) = Sequence{} |
+			if e->exists(stat | stat = self) then
+				map->getKeys()
+					->iterate(ee ; ids : Sequence(String) = Sequence{} |
+						if thisModule.getGranularityMapStats->get(ee) = e then
+							values->including(ee + thisModule.Separator + thisModule.Granularity + thisModule.Separator + (e->size() - e->indexOf(self)).toString())
+						else
+							ids
+						endif
+					)
+			else
+				values
+			endif
+		);
+
+--turn the information for a statement into a string (comment)
+--old implementation
+--helper def : toComment(input : Sequence(String), tag : String) : String =
+--	input->iterate(i ; str : String = thisModule.Comment |
+--		if input->last() = i then
+--			str->concat(tag + i)
+--		else
+--			str->concat(tag + i + ' | ')
+--		endif
+--	);
+helper def : toComment(start : String, input : Sequence(String), tag : String) : String =
+	input->iterate(i ; str : String = start |
+		if input->last() = i then
+			str->concat(tag + i)
+		else
+			str->concat(tag + i + ' | ')
+		endif
+	);
+
+--get the related method invocations to the slicing variable in the same statement
+--old implementation
+--helper context JAVA!Statement def : getRelatedMethodInvocation : Sequence(JAVA!AbstractMethodInvocation) =
+--	thisModule.ALL_ABSTRACT_METHOD_INVOCATION->select(mi | mi.belongsToStat(self))->flatten()
+--		->including(
+--					thisModule.ALL_ABSTRACT_METHOD_INVOCATION->select(mi | mi.belongsToStat(self))
+--																->collect(mi | mi.method)->flatten()
+--																	->collect(meth | thisModule.ALL_ABSTRACT_METHOD_INVOCATION->select(mi | mi.belongsToStat(meth.getContainingStatement)))
+--					);
+helper context JAVA!Statement def : getRelatedMethodInvocation : Sequence(JAVA!AbstractMethodInvocation) =
+	let mis_belonged_to_stat : Sequence(JAVA!AbstractMethodInvocation) = thisModule.ALL_ABSTRACT_METHOD_INVOCATION->select(mi | mi.belongsToStat(self)) in
+	mis_belonged_to_stat;-->flatten();
+		--removed on 13 jul 2012
+--		->including(
+--					mis_belonged_to_stat->collect(mi | mi.method)->flatten()
+--											->collect(meth | thisModule.ALL_ABSTRACT_METHOD_INVOCATION->select(mi | mi.belongsToStat(meth.getContainingStatement))).debug()
+--					)->flatten();
+
+--get the related method invocation for a statements (recursive)
+--for each related statement collect the method invocations inside it
+--the execution ends once the container element is not a statement
+helper context JAVA!Statement def : getRelatedMethodInvocationR(mis : Sequence(JAVA!AbstractMethodInvocation)) : Sequence(JAVA!AbstractMethodInvocation) =
+	let ric : OclAny = self.refImmediateComposite() in
+	if not ric.oclIsKindOf(JAVA!Statement) then
+		mis->union(self.getRelatedMethodInvocation)
+	else
+		ric.getRelatedMethodInvocationR(mis->union(self.getRelatedMethodInvocation))
+	endif;
+
+--- MARK INSIDE EACH METHOD CONTAINING A RULE, THE STATEMENTS (RECURSIVELY) CONTAINING A RULE (FOR EACH GRANULARITY LEVEL)
+---collect method invocations and variables in the containing statements (recursively)
+
+--calculate recursively all the method invocations related to a statement containing a rule
+--input  Sequence(
+--				Sequence(stat11, stat12, stat13, ..., stat1n), 
+--				Sequence(stat21, stat22, stat23, ..., stat2n),
+--				... ,
+--				Sequence(statm1, statm2, ..., statmn)
+--				)
+--output Sequence(
+--				  Sequence(
+--				  		Sequence(stat11, stat1-rel-stat11, stat2-rel-stat11, ..., stat3-rel-stat11), 
+--						Sequence(stat12, stat1-rel-stat12, stat2-rel-stat12, ..., stat3-rel-stat12),
+--						...
+--                      Sequence(stat1n, stat1-rel-stat1n, stat2-rel-stat1n, ..., stat3-rel-stat1n),
+--						),
+--				  Sequence(
+--				  		Sequence(stat21, stat1-rel-stat21, stat2-rel-stat21, ..., stat3-rel-stat21), 
+--						Sequence(stat22, stat1-rel-stat22, stat2-rel-stat22, ..., stat3-rel-stat22),
+--						...
+--                      Sequence(stat2n, stat1-rel-stat2n, stat2-rel-stat2n, ..., stat3-rel-stat2n),
+--						),
+--				 ...
+--				 )
+--stat1n is put as the first statement in each output list, because it is used to generate the id information
+helper def : RelatedMethodInvocations : Sequence(OclAny) =
+	thisModule.getGranularitySequenceStats->iterate(e1 ; app1 : Sequence(OclAny) = Sequence{} |
+		app1->including(e1->collect(e2 | e2.getRelatedMethodInvocationR(Sequence{})->flatten()->collect(var | var.getContainingStatement)->prepend(e2)))
+	);
+
+--get the related variables to the slicing variable in the same statement
+helper context JAVA!Statement def : getRelatedSingleVariableAccess : Sequence(JAVA!SingleVariableAccess) =
+	let belongs_to_stat : Sequence(JAVA!SingleVariableAccess) = thisModule.ALL_SINGLE_VARIABLE_ACCESS->select(var | var.belongsToStat(self)) in
+	belongs_to_stat->union(
+					belongs_to_stat->collect(var | var.variable)-->flatten()
+									->collect(var | thisModule.ALL_SINGLE_VARIABLE_ACCESS->select(sva | sva.belongsToStat(var.getContainingStatement)))
+					);-->flatten();
+
+--calculate recursively all the single variable accesses related to a statement containing a rule
+--the algorithm is the same for the related method invocations
+helper def : RelatedSingleVariableAccesses : Sequence(OclAny) = 
+	thisModule.getGranularitySequenceStats->iterate(e1 ; app1 : Sequence(OclAny) = Sequence{} |
+		app1->including(e1->collect(e2 | e2.getRelatedSingleVariableAccessR(Sequence{})->flatten()->collect(var | var.getContainingStatement)->prepend(e2)))
+	);
+
+--check if a statement is in the related set, rejecting all the statements in the granularity set
+helper context JAVA!Statement def : isInRelatedSet : Boolean =
+	thisModule.RelatedMethodInvocations->union(thisModule.RelatedSingleVariableAccesses)->flatten()->asSet()->asSequence()
+											->reject(stat | stat.isInGranularitySet)
+												->exists(stat | stat = self);
+
+--get the related single variable access for a statement (recursive)
+--for each related statement collect the singe variable accesses inside it
+--the execution ends once the container element is not a statement
+helper context JAVA!Statement def : getRelatedSingleVariableAccessR(vars : Sequence(JAVA!SingleVariableAccess)) : Sequence(JAVA!SingleVariableAccess) =
+	let ric : OclAny = self.refImmediateComposite() in
+	if not ric.oclIsKindOf(JAVA!Statement) then
+		vars->union(self.getRelatedSingleVariableAccess)
+	else
+		ric.getRelatedSingleVariableAccessR(vars->union(self.getRelatedSingleVariableAccess))
+	endif;
+
+--check if an element belongs to the statement stat
+helper context OclAny def : belongsToStat(stat : JAVA!Statement) : Boolean =
+	if self.oclIsKindOf(JAVA!Statement) then
+		self = stat
+	else
+		if self.oclIsKindOf(JAVA!AbstractMethodDeclaration) or self.oclIsTypeOf(JAVA!Model) then
+			false
+		else
+			self.refImmediateComposite().belongsToStat(stat)
+		endif
+	endif;
+
+--generate information for statement related to a rule, keeping track of the granularity level
+helper context JAVA!Statement def : getIDsAndGranularityInformationForRelevantStatement : Sequence(String) =
+	thisModule.RelatedMethodInvocations->union(thisModule.RelatedSingleVariableAccesses)->iterate(e1 ; app1 : Sequence(String) = Sequence{} |
+		e1->iterate(e2 ; values : Sequence(String) = Sequence{} |
+			if e2->exists(stat | stat = self) then
+				values->including(e2->first().getIDsAndGranularityInformation)->flatten()
+			else
+				app1->including(values)->flatten()->asSet()->asSequence()
+			endif
+		)
+	);
+
+
+--- MARK EACH ABSTRACT METHOD DECLARATION CONTAINING A RULE AS CONTAINER RULE
+--old implementation
+--helper def : getContainerAbstractMethodDeclarationsForRules : Sequence(JAVA!AbstractMethodDeclaration) =
+--	thisModule.getGranularitySequenceStats->flatten()->collect(stat | stat.getAbstractMethodDeclaration)->asSet()->asSequence();
+--new implementation
+helper def : getContainerAbstractMethodDeclarationsForRules : Sequence(JAVA!AbstractMethodDeclaration) =
+	thisModule.getGranularitySequenceStats->flatten()->collect(stat | stat.getAbstractMethodDeclaration)->asSet()->asSequence();
+
+helper context JAVA!AbstractMethodDeclaration def : isInContainerSet : Boolean =
+	thisModule.getContainerAbstractMethodDeclarationsForRules->exists(amd | amd = self);
+
+helper context JAVA!AbstractMethodDeclaration def : getIDsAndGranularityInformationForRelevantMethod : Sequence(String) =
+	self.body.statements
+	--thisModule.ALL_STATEMENTS->select(stat | stat.getAbstractMethodDeclaration = self)
+									->select(stat | stat.isInGranularitySet)
+										->collect(stat | stat.getIDsAndGranularityInformation)->flatten()->asSet()->asSequence();
+
+--- RELATED VARIABLES
+helper def : getAllRelatedVariables : Sequence(JAVA!AbstractVariablesContainer) =
+	let vars : Sequence(JAVA!SingleVariableAccess) = thisModule.ALL_SINGLE_VARIABLE_ACCESS->select(var | thisModule.RelatedMethodInvocations->union(thisModule.RelatedSingleVariableAccesses)->flatten()->asSet()->asSequence()->exists(stat | stat = var.getContainingStatement)) in	
+	thisModule.ALL_ABSTRACT_VARIABLES_CONTAINER->reject(avc | thisModule.getAllSelectedVariables->exists(slv | slv = avc))
+													->select(avc | avc.fragments->exists(frg | frg.usageInVariableAccess->exists(usg | vars->exists(var | var = usg))));	
+
+helper context JAVA!AbstractVariablesContainer def : isInRelatedVariablesSet : Boolean =
+	thisModule.getAllRelatedVariables->exists(rel | rel = self);
+
+--mod 28 02 2012
+helper context JAVA!Statement def : isInRelatedVariablesSet : Boolean =
+	if self.oclIsKindOf(JAVA!AbstractVariablesContainer) then
+		thisModule.getAllRelatedVariables->exists(rel | rel = self)
+	else
+		false
+	endif;
+
+helper context JAVA!Statement def : getIDsAndGranularityInformationForRelevantVariables : Sequence(String) =
+	if self.oclIsKindOf(JAVA!AbstractVariablesContainer) then
+		self.getIDsAndGranularityInformationForRelevantVariables
+	else
+		Sequence{}
+	endif;
+
+helper context JAVA!AbstractVariablesContainer def : getIDsAndGranularityInformationForRelevantVariables : Sequence(String) =
+	let vars : Sequence(JAVA!SingleVariableAccess) = thisModule.ALL_SINGLE_VARIABLE_ACCESS->select(var | thisModule.RelatedMethodInvocations->union(thisModule.RelatedSingleVariableAccesses)->flatten()->asSet()->asSequence()->exists(stat | stat = var.getContainingStatement)) in	
+	if self.fragments->exists(frg | frg.usageInVariableAccess->exists(usg | vars->exists(var | var = usg))) then
+		vars->select(var | self.fragments->exists(frg | frg.usageInVariableAccess->exists(usg | var = usg)))
+						->collect(var | var.getContainingStatement)->collect(stat | 
+																						if stat.isInGranularitySet then
+																							stat.getIDsAndGranularityInformation
+																						else
+																							stat.getIDsAndGranularityInformationForRelevantStatement
+																						endif
+																				)->flatten()->asSet()->asSequence()
+	else
+		Sequence{}
+	endif;
+
+helper context JAVA!Statement def : isInRelatedVariablesSetStat : Boolean =
+	thisModule.getAllRelatedVariables->select(avc | avc.oclIsTypeOf(JAVA!VariableDeclarationStatement))->exists(rel | rel = self);
+
+--- MARK EACH REACHABLE ABSTRACT METHOD DECLARATION THAT HAS A METHOD INVOCATION OCCURING IN A RULE
+--old get all the abstract methods in a abstract method declaration
+--helper context JAVA!AbstractMethodDeclaration def : getInsideReachableMethodDeclaration : Sequence(JAVA!AbstractMethodDeclaration) =
+--	thisModule.ALL_ABSTRACT_METHOD_INVOCATION->select(mi | mi.belongsToAbsMeth(self))->collect(mi | mi.method)->asSet()->asSequence()->flatten();
+
+--get all the abstract methods in a abstract method declaration
+helper context JAVA!AbstractMethodDeclaration def : getInsideReachableMethodDeclaration : Sequence(JAVA!AbstractMethodDeclaration) =
+	let interface_meths : Sequence(JAVA!AbstractMethodDeclaration) = self.getInterfaceAbstractMethodDeclaration in
+	thisModule.ALL_ABSTRACT_METHOD_INVOCATION->select(mi | 
+															mi.belongsToAbsMeth(self) 
+															or 
+															--mi.method = interface_meth
+															mi.method = interface_meths->exists(meth | meth = mi.method)
+														)->collect(mi | mi.method)->flatten()->asSet()->asSequence();
+
+--check if an element belongs to the abstract method declaration amd
+helper context OclAny def : belongsToAbsMeth(amd : JAVA!AbstractMethodDeclaration) : Boolean =
+	if self.oclIsKindOf(JAVA!AbstractMethodDeclaration) then
+		self = amd
+	else
+		if self.oclIsTypeOf(JAVA!Model) or self.oclIsUndefined() then
+			false
+		else
+			self.refImmediateComposite().belongsToAbsMeth(amd)
+		endif
+	endif;
+
+--calculate the starting set for reachable methods. Collect all the method invocations contained in a statement that is in in the granularity, related or variable related set
+--input  Sequence(
+--				stat1 containing a method invocation x, 
+--				stat2 containing a method invocation y,
+--				... ,
+--				statn containing a method invocation z
+--				)
+-- where stat are statements contained in the granularity, related or variable related set
+--output Sequence(
+--				  Sequence(md-x, stat1-mix), 
+--				  Sequence(md-y, stat2-miy),
+--				  ...
+--                Sequence(md-z, statn-mdz),
+--			     )
+helper def : RelatedMethodDeclarationsForFindingReachableMethodDeclarations : Sequence(OclAny) =
+	let stats : Sequence(JAVA!Statement) = thisModule.ALL_STATEMENTS->select(stat | stat.isInGranularitySet or stat.isInRelatedSet or stat.isInRelatedVariablesSetStat) in
+	thisModule.ALL_ABSTRACT_METHOD_INVOCATION->select(ami | stats->exists(stat | stat = ami.getContainingStatement))
+													->reject(ami | ami.method.proxy = true) -- or ami.method.isInContainerSet)
+														->collect(ami | Sequence{ami.method,ami.getContainingStatement});
+
+helper def : getInsideReachableMethodDeclarationS(input : Sequence(OclAny)) : Sequence(OclAny) =
+	input->reject(any | any.oclIsUndefined())
+					->collect(any | 
+						if any.oclIsKindOf(JAVA!AbstractMethodDeclaration) then 
+							any.getInsideReachableMethodDeclaration->reject(amd | amd.proxy = true or amd.isInContainerSet)
+								->reject(amd | input->exists(i | i = amd)) -- 31 jan 2012 removing recursion problem
+						else
+							any
+						endif)->flatten()->asSet()->asSequence();
+
+helper def : check(input : Sequence(OclAny)) : Boolean =
+	thisModule.getInsideReachableMethodDeclarationS(input)->reject(any | any.oclIsKindOf(JAVA!Statement))->reject(any | any.oclIsUndefined())
+															->reject(amd | amd.proxy = true or amd.isInContainerSet)->size() = 0;
+
+--new version 01 02 2011 code optimization
+--calculate the reachable method declarations set. Collect all the method invocations contained in a statement that is in in the granularity, related or variable related set
+--input  Sequence(
+--				  Sequence(md-x, stat1-mix), 
+--				  Sequence(md-y, stat2-miy),
+--				  ...
+--                Sequence(md-z, statn-mdz),
+--				)
+-- where stat are statements contained in the granularity, related or variable related set
+--output Sequence(
+--				  Sequence(md-x2, md-x1, md-x, stat1-mix), 
+--				  Sequence(md-y2, md-y1, md-y, stat2-miy),
+--				  ...
+--                Sequence(md-z2, md-z1, statn-mdz),
+--			     )
+--where md-xn are methods declarations that have one of them method invocations in md-x(n-1)
+helper def : getReachableMethodInvocations(input : Sequence(OclAny)) : Sequence(OclAny) =
+	if input->forAll(seq | thisModule.check(seq)) then
+		input
+	else
+		thisModule.getReachableMethodInvocations(
+			input->iterate(e1 ; app1 : Sequence(OclAny) = Sequence{} |
+				app1->including(
+					if thisModule.check(e1) then
+						e1
+					else
+						e1->union(Sequence{OclUndefined})->union(thisModule.getInsideReachableMethodDeclarationS(e1))
+					endif
+				)
+			)
+		)
+	endif;
+
+helper def : getReachableMethodInvocationsStarting : Sequence(OclAny) =
+	thisModule.getReachableMethodInvocations(
+												thisModule.RelatedMethodDeclarationsForFindingReachableMethodDeclarations
+											);
+
+helper context JAVA!AbstractMethodDeclaration def : isInReachableSet : Boolean =
+	thisModule.getReachableMethodInvocationsStarting->flatten()->exists(amd | amd = self);
+
+--get the distance of the statement modifying the value of a variable from a reachable method
+--ex.:
+--		if (isAlive)
+--			age = 0     --statement modifying the value
+--
+--      isAlive         --isAlive is a reachable method with distance 0
+--      	getAge > 0
+--
+--		getAge          --getAge is a reachable method with distance 1
+--			return age
+helper context JAVA!Statement def : getDistance(amd : JAVA!AbstractMethodDeclaration) : String =
+	thisModule.getReachableMethodInvocationsStarting->select(seq | seq->exists(any | any = self))
+														->select(seq | seq->exists(any | any = amd))
+															->collect(seq |
+																			seq->iterate(e ; pos : Sequence(OclAny) = Sequence{} |
+																							if pos->exists(p | not p.oclIsUndefined()) then
+																								pos
+																							else
+																								if e.oclIsUndefined() or e = amd then
+																									pos->including(e)
+																								else
+																									pos
+																								endif
+																							endif
+																						)->reject(e | e = amd)->size().toString()
+															)->first();	
+																				
+
+helper context JAVA!AbstractMethodDeclaration def : getIDsAndGranularityInformationForReachableMethod : Sequence(String) =
+	thisModule.getReachableMethodInvocationsStarting->select(seq | seq->exists(any | any = self))
+														->flatten()->asSet()->asSequence()
+															->select(any | any.oclIsKindOf(JAVA!Statement))
+																->collect(stat | 
+																					if stat.isInRelatedVariablesSetStat then
+																						stat.getIDsAndGranularityInformationForRelevantVariables
+																					else
+																						if stat.getIDsAndGranularityInformation->notEmpty() then
+																							stat.getIDsAndGranularityInformation
+																						else
+																							stat.getIDsAndGranularityInformationForRelevantStatement
+																						endif
+																					endif
+																			--add distance for reachable methods
+																			->collect(str | str->concat(thisModule.Separator + thisModule.Distance + thisModule.Separator + stat.getDistance(self)))
+																		)->flatten()->asSet()->asSequence();
+
+--- REACHABLE VARIABLES 21 02 2012
+--helper def : getAllReachableSingleVariableAccess : Sequence(JAVA!SingleVariableAccess) =
+--	thisModule.ALL_SINGLE_VARIABLE_ACCESS->select(var | thisModule.getReachableMethodInvocationsStarting->flatten()->exists(amd | amd = var.getAbstractMethodDeclaration));
+--
+--helper def : getAllReachableVariables : Sequence(JAVA!AbstractVariablesContaier) =
+--	thisModule.ALL_ABSTRACT_VARIABLES_CONTAINER->select(avc | avc.oclIsTypeOf(JAVA!FieldDeclaration))->select(avc | avc.fragments->exists(frg | frg.usageInVariableAccess->exists(var | thisModule.getAllReachableSingleVariableAccess->exists(v | v = var))));
+--
+--helper context JAVA!AbstractVariablesContainer def : isInReachableVariableSet : Boolean =
+--	thisModule.getAllReachableVariables->exists(reach | reach = self);
+--
+--helper context JAVA!AbstractVariablesContainer def : getIDsAndGranularityInformationForReachableVariable : Sequence(String) =
+--	let methods : Sequence(JAVA!AbstractMethodDeclaration) = thisModule.getAllReachableSingleVariableAccess->collect(var | var.getAbstractMethodDeclaration)->asSet()->asSequence()->flatten() in
+--	methods->select(meth | thisModule.getAllReachableVariables->exists(reach | reach.fragments->exists(frg | frg.usageInVariableAccess->exists(var | var.getAbstractMethodDeclaration = meth))))
+--				->reject(meth | meth.oclIsUndefined())
+--					->collect(meth | meth.getIDsAndGranularityInformationForReachableMethod)->flatten()->asSet()->asSequence();
+	
+---RULES PART
+rule SelectVariableComment2SlicedVariableComment {
+	from
+		s : JAVA!LineComment (s.content = thisModule.Comment + thisModule.VariableSelection)
+	to
+		t : JAVA!LineComment (
+			content <- thisModule.Comment + thisModule.SlicedVariable + thisModule.Points + s.refImmediateComposite().fragments->first().name
+		)
+}
+
+--2may
+helper context JAVA!FieldDeclaration def : generateCommentForFieldDeclaration : String =
+	thisModule.toComment(thisModule.Comment, self.getIDsAndGranularityInformationForRelevantVariables, thisModule.RelatedVariable + thisModule.Points);
+
+--	if self.isInRelatedVariablesSet and self.isInReachableVariableSet then
+--		thisModule.toComment(thisModule.Comment, self.getIDsAndGranularityInformationForRelevantVariables, thisModule.RelatedVariable + thisModule.Points)
+--						->concat(thisModule.toComment(' | ', self.getIDsAndGranularityInformationForReachableVariable, thisModule.ReachableVariable + thisModule.Points))
+--	else
+--		if self.isInRelatedVariablesSet and not self.isInReachableVariableSet then
+--			thisModule.toComment(thisModule.Comment, self.getIDsAndGranularityInformationForRelevantVariables, thisModule.RelatedVariable + thisModule.Points)
+--		else
+--			if not self.isInRelatedVariablesSet and self.isInReachableVariableSet then
+--				thisModule.toComment(thisModule.Comment, self.getIDsAndGranularityInformationForReachableVariable, thisModule.ReachableVariable + thisModule.Points)
+--			else
+--				thisModule.toComment(thisModule.Comment, Sequence{'ooops'})
+--			endif
+--		endif
+--	endif;
+
+--2may
+rule FieldDeclaration {
+	from
+		s : JAVA!FieldDeclaration (s.isInRelatedVariablesSet)
+	to
+		t : JAVA!FieldDeclaration (
+			comments <- s.comments->including(IDcomm)	
+		),
+		IDcomm : JAVA!LineComment (
+			content <- s.generateCommentForFieldDeclaration,
+			prefixOfParent <- true
+		)
+}
+
+helper context JAVA!Statement def : generateCommentForStatement : String =
+	if self.isInRelatedVariablesSet and self.isInGranularitySet and self.isInRelatedSet then
+		thisModule.toComment(thisModule.Comment, self.getIDsAndGranularityInformationForRelevantVariables, thisModule.RelatedVariable + thisModule.Points)
+						->concat(thisModule.toComment(' | ', self.getIDsAndGranularityInformation, ''))
+							->concat(thisModule.toComment(' | ', self.getIDsAndGranularityInformationForRelevantStatement, thisModule.RelatedStatement + thisModule.Points))
+	else
+		if self.isInRelatedVariablesSet and self.isInGranularitySet and not self.isInRelatedSet then
+			thisModule.toComment(thisModule.Comment, self.getIDsAndGranularityInformationForRelevantVariables, thisModule.RelatedVariable + thisModule.Points)
+							->concat(thisModule.toComment(' | ', self.getIDsAndGranularityInformation, ''))
+		else
+			if self.isInRelatedVariablesSet and not self.isInGranularitySet and self.isInRelatedSet then
+				thisModule.toComment(thisModule.Comment, self.getIDsAndGranularityInformationForRelevantVariables, thisModule.RelatedVariable + thisModule.Points)
+								->concat(thisModule.toComment(' | ', self.getIDsAndGranularityInformationForRelevantStatement, thisModule.RelatedStatement + thisModule.Points))
+			else
+				if not self.isInRelatedVariablesSet and self.isInGranularitySet and self.isInRelatedSet then
+					thisModule.toComment(thisModule.Comment, self.getIDsAndGranularityInformation, '')
+									->concat(thisModule.toComment(' | ', self.getIDsAndGranularityInformationForRelevantStatement, thisModule.RelatedStatement + thisModule.Points))
+				else
+					if self.isInRelatedVariablesSet and not self.isInGranularitySet and not self.isInRelatedSet then
+						thisModule.toComment(thisModule.Comment, self.getIDsAndGranularityInformationForRelevantVariables, thisModule.RelatedVariable + thisModule.Points)
+					else
+						if not self.isInRelatedVariablesSet and self.isInGranularitySet and not self.isInRelatedSet then
+							thisModule.toComment(thisModule.Comment, self.getIDsAndGranularityInformation, '')
+						else
+							if not self.isInRelatedVariablesSet and not self.isInGranularitySet and self.isInRelatedSet then
+								thisModule.toComment(thisModule.Comment, self.getIDsAndGranularityInformationForRelevantStatement, thisModule.RelatedStatement + thisModule.Points)
+							else
+								thisModule.toComment(thisModule.Comment, Sequence{'ooops'})
+							endif
+						endif
+					endif
+				endif
+			endif
+		endif
+	endif;
+
+rule Statement {
+	from
+		s : JAVA!Statement (s.isInRelatedVariablesSet or s.isInGranularitySet or s.isInRelatedSet)
+	to
+		t : JAVA!Statement (
+			comments <- s.comments->including(IDcomm)
+		),
+		IDcomm : JAVA!LineComment (
+			content <- s.generateCommentForStatement,
+			prefixOfParent <- true
+		)
+}
+
+--2may
+helper context JAVA!AbstractMethodDeclaration def : generateCommentForAbstractMethodDeclaration : String = 
+	if self.isInContainerSet and self.isInReachableSet then
+		thisModule.toComment(thisModule.Comment, self.getIDsAndGranularityInformationForRelevantMethod->asSet()->asSequence(), thisModule.RelatedMethod + thisModule.Points)
+						->concat(thisModule.toComment(' | ', self.getIDsAndGranularityInformationForReachableMethod->asSet()->asSequence(), thisModule.ReachableMethod + thisModule.Points))
+	else
+		if self.isInContainerSet and not self.isInReachableSet then
+			thisModule.toComment(thisModule.Comment, self.getIDsAndGranularityInformationForRelevantMethod->asSet()->asSequence(), thisModule.RelatedMethod + thisModule.Points)
+		else
+			if not self.isInContainerSet and self.isInReachableSet then
+				thisModule.toComment(thisModule.Comment, self.getIDsAndGranularityInformationForReachableMethod->asSet()->asSequence(), thisModule.ReachableMethod + thisModule.Points)
+			else
+				thisModule.toComment(thisModule.Comment, Sequence{'ooops'})
+			endif
+		endif
+	endif;
+
+--2may
+rule AbstractMethodDeclaration {
+	from
+		s : JAVA!AbstractMethodDeclaration (s.isInContainerSet or s.isInReachableSet)
+	to
+		t : JAVA!AbstractMethodDeclaration (
+			comments <- s.comments->including(IDcomm)
+		),
+		IDcomm : JAVA!LineComment (
+			content <- s.generateCommentForAbstractMethodDeclaration,
+			prefixOfParent <- true
+		)
+}

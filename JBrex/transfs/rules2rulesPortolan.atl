@@ -1,0 +1,76 @@
+-- @path BR=/Xbrex/metamodels/brmodel.ecore
+-- @path PORT=/Xbrex/metamodels/PortolanCore.ecore
+
+module rules2rulesPortolan;
+create OUT : PORT from IN : BR;
+
+helper def : ALL_RULES : Sequence(BR!Rule) = BR!Rule.allInstances();
+
+helper context BR!Rule def : getConnectedRules : Sequence(BR!Rule) =
+	thisModule.ALL_RULES->reject(r | r = self)
+							->select(r | r.ruleParts->exists(rp | self.ruleParts->exists(self_rp | self_rp.getContent = rp.getContent)));
+
+helper context BR!Rule def : isConnectedToOtherRules : Boolean =
+	self.getConnectedRules->notEmpty();
+
+helper context BR!RulePart def : getContent : String =
+	self.relatedStatements->iterate(relStat; output : String = '' | 
+		output->concat(relStat.textContent + '\n')
+	)->concat(self.action.textContent);
+
+helper context BR!Rule def : getInfo : String =
+	'var:' + self.slicedVariable.name + ' id:'+ self.id + '\n' +
+	self.ruleParts->iterate(rp ; output : String = '' |
+		output->concat(
+						'class:' + rp.relatedMethod.class + ' method:' + rp.relatedMethod.name + '\n' +
+						 rp.getContent + '\n------\n'
+					  )
+	);
+
+rule Model2Megamodel {
+	from
+		s : BR!Model
+	to
+		t : PORT!Megamodel (
+			ownedElements <- s.rules
+								->union(s.rules->select(r | r.isConnectedToOtherRules)
+										->collect(r | thisModule.ConnectingRules(r)))
+		)
+}
+
+rule Rule2Entity {
+	from
+		s : BR!Rule
+	to
+		t : PORT!Entity (
+			__id <- 'VAR_' + s.slicedVariable.name + '_ID_' + s.id,
+			identifier <- identifier,
+			metadata <- Sequence{meta}
+		),
+		identifier : PORT!Identifier (
+			value <- s.getInfo
+		),
+		meta : PORT!Metadata (
+			key <- 'color',
+			value <- 'VAR_' + s.slicedVariable.name + '_ID_' + s.id
+		)
+}
+
+lazy rule ConnectingRules {
+	from
+		s: BR!Rule
+	to
+		t : PORT!DirectedRelationship (
+			source <- Sequence{s},
+			target <- s.getConnectedRules,
+			identifier <- identifier,
+			metadata <- Sequence{meta}
+		),
+		identifier : PORT!Identifier (
+			value <- 'connectingdifferentrules'	
+		),
+		meta : PORT!Metadata (
+			key <- 'color',
+			value <- 'connectingdifferentrules'
+		)
+}

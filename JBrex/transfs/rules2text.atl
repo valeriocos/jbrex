@@ -1,0 +1,29 @@
+-- @path BR=/Xbrex/metamodels/brmodel.ecore
+-- @path PATH=/prototype/metamodels/path.ecore
+
+module rules2text;
+create OUT : BR refining IN : BR, IN1 : PATH;
+
+helper context BR!RulePart def : getContent : String =
+	'rule part - granularity:' + self.granularity + '\n' +
+	'class:' + self.relatedMethod.class + ' method:' + self.relatedMethod.name + '\n' +
+	self.relatedStatements->iterate(relStat; output : String = '' | 
+		output->concat(relStat.textContent + '\n')
+	)->concat(self.action.textContent);
+
+helper context BR!Rule def : getContent : String =
+	'ruleId:' + self.id + ' - variable:' + self.slicedVariable.name + '\n' +
+	self.ruleParts->iterate(part; output: String = '-------------------------\n' |
+		output->concat(part.getContent) + '\n' + '-------------------------\n'
+);
+
+helper def : getRuleContents : String =
+	BR!Rule.allInstances()->sortedBy(r | r.slicedVariable.name)->iterate(r; output: String = '' |
+	output->concat('*********************************' + '\n' +
+	r.getContent + '\n' + 
+	'*********************************' + '\n')
+);
+
+helper def : printRules : String =
+	thisModule.getRuleContents.writeTo(PATH!Path.allInstances()->first().value.toString());
+

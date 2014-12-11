@@ -1,0 +1,382 @@
+-- @path GraphML=http://modeling.inria.fr/GraphML
+-- @nsURI Cartography=http://portolan.inria.fr/1.0
+-- @path TRC=/FoxesAndRabbitsAT/metamodels/Trace.ecore
+
+-- ******************************************************************************
+-- * Copyright (c) 2009, 2011 INRIA Rennes Bretagne-Atlantique and others.
+-- *
+-- * All rights reserved.   This program and the accompanying materials
+-- * are made available under the terms of the Eclipse Public License v1.0
+-- * which accompanies this distribution, and is available at
+-- * http://www.eclipse.org/legal/epl-v10.html
+-- *
+-- * Contributors:
+-- *   INRIA Rennes Bretagne-Atlantique - Initial API and implementation
+-- ******************************************************************************
+
+------------- manage each DirectedRelationship with multiple sources/targets
+------------- by creating one single link for each of the sources/targets pairs
+module Cartography2GraphMLSingle;
+create OUT : GraphML, OUT1 : TRC from IN : Cartography;
+
+helper def: graph : GraphML!Graph = OclUndefined;
+helper def: entities : Sequence(Cartography!Entity) = Sequence{};
+
+helper def: incr : Integer = 0;
+
+entrypoint rule init() {
+	to 
+		root : GraphML!Root (
+			keys <- Sequence{label, nodetype, nodeweight, error, group,
+							 edgetype, edgeweight, nodedescr, edgedescr, edgedir},
+			graphs <- Sequence{g}
+		),
+		label : GraphML!Key(
+			id <- 'label',
+			"for" <- #node,
+			attrName <- 'label',
+			type <- #string
+		),
+		nodetype : GraphML!Key(
+			id <- 'type',
+			"for" <- #node,
+			attrName <- 'type',
+			type <- #string
+		),
+		nodeweight : GraphML!Key(
+			id <- 'weight',
+			"for" <- #node,
+			attrName <- 'weight',	-- default Prefuse weight ID
+			type <- #double
+		),
+		nodedescr : GraphML!Key(
+			id <- 'descr',
+			"for" <- #node,
+			attrName <- 'descr',
+			type <- #string
+		),
+		error : GraphML!Key(
+			id <- 'error',
+			"for" <- #node,
+			attrName <- 'error',
+			type <- #string
+		),
+		group : GraphML!Key(
+			id <- 'group',
+			"for" <- #node,
+			attrName <- 'group',		-- default Prefuse group ID
+			type <- #string
+		),
+		edgetype : GraphML!Key(
+			id <- 'type',
+			"for" <- #edge,
+			attrName <- 'type',
+			type <- #string
+		),
+		edgeweight : GraphML!Key(
+			id <- 'weight',
+			"for" <- #edge,
+			attrName <- 'weight',	-- default Prefuse weight ID
+			type <- #double
+		),
+		edgedescr : GraphML!Key(
+			id <- 'descr',
+			"for" <- #edge,
+			attrName <- 'descr',
+			type <- #string
+		),
+		edgedir : GraphML!Key(
+			id <- 'directed',
+			"for" <- #edge,
+			attrName <- 'directed',
+			type <- #string
+		),
+		g :	GraphML!Graph (
+--			edgeDefault <- #directed, -- not properly managed by Prefuse
+			id <- 'Cartography graph'
+		)
+	do {
+		thisModule.graph <- g;
+		
+		-- process groups: the map links all owned elements to their group ID
+		Cartography!Group.allInstances()
+			->iterate(grp; unused1 : String = '' |
+				grp.ownedElements
+					->iterate(element;
+						unused2 : String = '' |
+						thisModule.groupsMap.put(element, grp.getID)
+				)
+			);
+		-- process (undirected) Relationship links
+		Cartography!Relationship.allInstances()
+			->iterate(rel; unused: String = '' |
+				rel.linkedElements->collect(e1 |
+					rel.linkedElements->collect(e2 |
+						if (e1 <> e2)
+						then
+							if (thisModule.linksMap.get(Tuple{source = e1, target = 2}).oclIsUndefined()
+								and thisModule.linksMap.get(Tuple{source = e2, target = e1}).oclIsUndefined())
+							then
+								thisModule.linksMap.put(
+									Tuple{source = e1, target = e2},
+									thisModule.createEdge(e1, e2, rel, 'false',
+										-- tool tip text for all edges corresponding to this Relationship
+										rel.getID + '\n'
+										+ 'name: ' + rel.__id + '\n'
+										+ rel.metadata->iterate(m; s : String = '' |
+											s + m.key + ': ' + m.value + '\n')
+										+ 'type: ' + rel.getType
+										+ '\n--------------------------------------------------------------\n'
+										+ 'relates: \n'
+											+ rel.linkedElements->iterate(ie; s : String = '' |
+												s + '  -> ' + ie.__id + ' (' + ie.getType + ')\n')
+									)
+								)
+							else
+								OclUndefined
+							endif
+						else
+							OclUndefined
+						endif
+					)	
+				)
+			);
+	}
+}
+
+helper def: groupsMap : Map(Cartography!Element, String) = Map{};
+
+helper def: getGroup(element : Cartography!Element) : String =
+	thisModule.groupsMap.get(element);
+
+helper def: linksMap : Map(TupleType(source: Cartography!Element, target: Cartography!Element), GraphML!Edge) = Map{};
+
+helper def: getLink(t : TupleType(source : Cartography!Element, target: Cartography!Element)) : GraphML!Edge =
+	thisModule.linksMap.get(t);
+
+rule SourceElement {
+	from
+		e : Cartography!Entity
+--			(e.sourceOf->size() > 0 or e.targetOf->size() > 0)
+	using {
+		weight : String =
+			if (e.metadata->exists(md | md.key = 'weight')) then
+				e.metadata->select(md | md.key = 'weight')->first().value
+			else
+				'0'
+			endif;
+		group : String =
+			if thisModule.groupsMap.get(e).oclIsUndefined() then
+				'#na'
+			else
+				thisModule.groupsMap.get(e)
+			endif;
+
+		-- compute detailled tooltip texts
+		ttt : String =
+			e.getID + '\n'
+			+ 'name: ' + e.__id + '\n'
+			-- metadata ...
+			+ e.metadata->iterate(m; s : String = '' |
+				s + m.key + ': ' + m.value + '\n')
+			-- element type
+			+ 'type: ' + e.getType
+			+ '\n----------------------------------------------\n'
+			-- list of related elements
+			+ e.relatedTo->iterate(rt; s : String = '' |
+				s + rt.getType + ' (' + rt.__id + '):\n'
+				+ rt.linkedElements->select(ie | ie <> e)
+					->iterate(ie; s2: String = '' |
+						s2 + '  -> ' + ie.getID + ' (' + ie.getType + ')\n'))
+			-- list of DirectedRelationships the entity is source
+			+ e.sourceOf->iterate(dr; s : String = '' |
+				s + dr.getType + ' (' + dr.__id + '):\n'
+				+ dr.target->iterate(ie; s2: String = '' |
+					s2 + '  -> ' + ie.getID + ' (' + ie.getType + ')\n'))
+			-- list of DirectedRelationships the entity is target
+			+ e.targetOf->iterate(dr; s : String = '' |
+				s + dr.getType + ' (' + dr.__id + '):\n'
+				+ dr.source->iterate(ie; s2: String = '' |
+					s2 + '  -> ' + ie.getID + ' (' + ie.getType + ')\n'))
+			;
+	}
+	to
+		node : GraphML!Node (
+			-- incr needed for homonyms
+			id			<- thisModule.incr.toString() + ' - ' + e.getID,
+			datas		<- Sequence{thisModule.createData('label', e.getID),
+									thisModule.createData('type', e.getType),
+									thisModule.createData('weight', weight),
+									thisModule.createData('error', ''),
+									thisModule.createData('group', group),
+									thisModule.createData('descr', ttt)},
+			graph		<- thisModule.graph,
+			-- manage "its" relationships
+			sourceOf	<- e.sourceEdges,
+			targetOf	<- e.targetEdges
+		),
+		trace : TRC!TraceLink (
+			name <- 'Node',
+			targetElements <- Sequence{node}
+		)
+	do {
+		thisModule.incr <- thisModule.incr + 1;
+		trace.refSetValue('sourceElements', Sequence{e});
+	}
+}
+
+-- manage relationships from source entities + undirected relationships
+helper context Cartography!Entity def: sourceEdges : Sequence(GraphML!Edge) =
+	self.sourceOf->collect(dr | dr.sEdges(self))
+		->union(self.sourceLinks);
+
+helper context Cartography!DirectedRelationship def : sEdges(e : Cartography!Entity) : Sequence(GraphML!Edge) =
+	if (self.target->size() = 0) then
+		thisModule.createEdge(e, OclUndefined, self, 'true', self.drTtt)
+	else
+		self.target->collect(t | thisModule.createEdge(e, t, self, 'true', self.drTtt))
+	endif;
+
+-- all Relationship instances relatedTo this Entity
+helper context Cartography!Entity def: sourceLinks : Sequence(GraphML!Edge) =
+	self.relatedTo->collect(rel | 
+		rel.linkedElements->collect(e |
+			thisModule.linksMap.get(Tuple{source = self, target = e})
+		))->flatten()->select(edge | not edge.oclIsUndefined());
+
+-- manage relationships from target entities
+helper context Cartography!Entity def: targetEdges : Sequence(GraphML!Edge) =
+	self.targetOf->collect(dr | dr.tEdges(self))
+		->union(self.targetLinks);
+
+helper context Cartography!DirectedRelationship def : tEdges(e : Cartography!Entity) : Sequence(GraphML!Edge) =
+	if (self.source->size() = 0) then
+		thisModule.createEdge(OclUndefined, e, self, 'true', self.drTtt)
+	else
+		self.source->collect(s | thisModule.createEdge(s, e, self, 'true', self.drTtt))
+	endif;
+
+helper context Cartography!Entity def: targetLinks : Sequence(GraphML!Edge) =
+	self.relatedTo->collect(rel | 
+		rel.linkedElements->collect(e |
+			thisModule.linksMap.get(Tuple{source = e, target = self})
+		))->flatten()->select(edge | not edge.oclIsUndefined());
+
+
+lazy rule createEdge {
+	from
+		src : Cartography!IdentifiedElement,
+		tgt : Cartography!IdentifiedElement,
+		rel  : Cartography!Relationship,
+		dir	: String,
+		ttt : String
+	using {
+		weight : String =
+			if (rel.metadata->select(md | md.key = 'weight')->size() > 0) then
+				rel.metadata->select(md | md.key = 'weight')->first().value
+			else
+				'0'
+			endif;
+	}
+	to
+		edge : GraphML!Edge (
+			id			<- thisModule.incr.toString() + ' - ' + rel.getID,
+			source	<- if (src = OclUndefined) then
+							thisModule.createLackingNode(rel.getID, 'source lacking')
+						else
+							thisModule.resolveTemp(src, 'node')
+						endif,
+			target	<- if (tgt = OclUndefined) then
+								thisModule.createLackingNode(rel.getID, 'target lacking')
+						else 
+							thisModule.resolveTemp(tgt, 'node')
+						endif,
+			datas		<- Sequence{thisModule.createData('type', rel.getType),
+									thisModule.createData('weight', weight),
+									thisModule.createData('descr', ttt),
+									thisModule.createData('directed', dir)},
+			graph		<- thisModule.graph
+		),
+		trace : TRC!TraceLink (
+			name <- 'Node',
+			targetElements <- Sequence{edge}
+		)
+	do {
+		thisModule.incr <- thisModule.incr + 1;
+		trace.refSetValue('sourceElements', Sequence{src,tgt,rel});
+	}
+}
+
+helper context Cartography!Relationship def: ttt : String =
+	-- tool tip text for all edges corresponding to this Relationship
+	self.getID + '\n'
+	+ 'name: ' + self.__id + '\n'
+	+ self.metadata->iterate(m; s : String = '' |
+		s + m.key + ': ' + m.value + '\n')
+	+ 'type: ' + self.getType
+	+ '\n--------------------------------------------------------------\n'
+	+ 'relates: \n'
+		+ self.linkedElements->iterate(ie; s : String = '' |
+			s + '  -> ' + ie.__id + ' (' + ie.getType + ')\n')
+	;
+
+helper context Cartography!DirectedRelationship def: drTtt : String =
+	self.getID + '\n'
+	+ 'name: ' + self.__id + '\n'
+	+ self.metadata->iterate(m; s : String = '' |
+		s + m.key + ': ' + m.value + '\n')
+	+ 'type: ' + self.getType
+	+ '\n----------------------------------------------\n'
+	-- list of DirectedRelationships the entity is source
+	+ 'sources:\n'
+		+ self.source->iterate(src; s: String = '' |
+			s + '  -> ' + src.__id + ' (' + src.getType + '):\n')
+	+ 'targets:\n'
+		+ self.target->iterate(tgt; s : String = '' |
+			s + '  -> '+ tgt.__id + ' (' + tgt.getType + '):\n')
+	;
+
+helper context Cartography!Element def: getType : String =
+	--self.oclType().toString();
+	if self.metadata->select(meta | meta.key = 'color')->first().oclIsUndefined() then
+		self.oclType().toString()
+	else
+		self.metadata->select(meta | meta.key = 'color')->first().value.toString()
+	endif;
+
+-- defensive code, in order to deal with models not properly valid
+helper context Cartography!IdentifiedElement def: getID : String =
+	if self.identifier.oclIsUndefined()
+	then 'no identifier'
+	else if self.identifier.value.oclIsUndefined()
+		then 'identifier undefined'
+		else self.identifier.value
+		endif
+	endif;
+
+unique lazy rule createLackingNode {
+	from
+		ref    : String,
+		label : String
+	to
+		node : GraphML!Node (
+			id		<- ref + ' ' + label,
+			datas	<- Sequence{thisModule.createData('label', label),
+								thisModule.createData('type', '** lacking type **'),
+								thisModule.createData('error', 'lacks'),
+								thisModule.createData('group', '** lacking nodes **'),
+							    thisModule.createData('descr', ref +' '+ label)},
+			graph	<- thisModule.graph
+		)
+}
+
+lazy rule createData {
+	from
+		k : String, v : String
+	to
+		data : GraphML!Data (
+			key          <- k,
+			-- [defensive code] Ensure the GraphML is valid even if cartography is corrupted!!
+			value        <- if v.oclIsUndefined() then '' else v endif
+		)
+}

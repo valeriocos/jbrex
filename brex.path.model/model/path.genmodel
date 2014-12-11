@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<genmodel:GenModel xmi:version="2.0" xmlns:xmi="http://www.omg.org/XMI" xmlns:ecore="http://www.eclipse.org/emf/2002/Ecore"
+    xmlns:genmodel="http://www.eclipse.org/emf/2002/GenModel" modelDirectory="/brex.path.model/src" modelPluginID="brex.path.model"
+    modelName="Path" rootExtendsClass="org.eclipse.emf.ecore.impl.MinimalEObjectImpl$Container"
+    importerID="org.eclipse.emf.importer.ecore" complianceLevel="5.0" copyrightFields="false"
+    operationReflection="true" importOrganizing="true">
+  <foreignModel>../../Xbrex/metamodels/path.ecore</foreignModel>
+  <genPackages prefix="Path" disposableProviderFactory="true" ecorePackage="path.ecore#/">
+    <genClasses ecoreClass="path.ecore#//Path">
+      <genFeatures createChild="false" ecoreFeature="ecore:EAttribute path.ecore#//Path/value"/>
+    </genClasses>
+  </genPackages>
+</genmodel:GenModel>

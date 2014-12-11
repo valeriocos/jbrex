@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?eclipse version="3.4"?>
+<plugin>
+   <extension
+         point="org.eclipse.ui.editors">
+      <editor
+            class="fr.inria.portolan.visualization.prefuse.ui.PrefuseEditor"
+            default="false"
+            extensions="graphml"
+            icon="icons/portolan_16x16.png"
+            id="fr.inria.portolan.visualization.prefuse.ui.PrefuseEditor"
+            name="Portolan Graph Viewer">
+      </editor>
+   </extension>
+   <extension
+         point="org.eclipse.ui.popupMenus">
+      <objectContribution
+            id="fr.inria.portolan.visualization.prefuse.objectContribution3"
+            nameFilter="*.graphml"
+            objectClass="org.eclipse.core.resources.IFile">
+         <action
+               class="fr.inria.portolan.visualization.prefuse.actions.ViewGraphAction"
+               enablesFor="1"
+               icon="icons/portolan_16x16.png"
+               id="fr.inria.portolan.visualization.prefuse"
+               label="View GraphML file">
+         </action>
+      </objectContribution>
+   </extension>
+
+</plugin>

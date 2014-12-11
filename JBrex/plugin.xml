@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?eclipse version="3.4"?>
+<plugin>
+
+   <extension
+         point="org.eclipse.ui.actionSets">
+      <actionSet
+            label="BREX set"
+            visible="true"
+            id="jbrex.actionSet">
+         <action
+               label="start JBREX"
+               icon="icons/sample.gif"
+               class="jbrex.actions.JBrexAction"
+               tooltip="start JBREX"
+               toolbarPath="jbrexGroup"
+               id="jbrex.actions.JBrexAction">
+         </action>
+      </actionSet>
+   </extension>
+
+</plugin>

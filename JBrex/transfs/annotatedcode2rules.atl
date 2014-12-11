@@ -1,0 +1,500 @@
+-- @path JAVA=/Xbrex/metamodels/java.ecore
+-- @path BR=/Xbrex/metamodels/brmodel.ecore
+
+module annotatedcode2rules;
+create OUT : BR from IN : JAVA;
+
+helper def : VariableSelection : String = 'SELECT-VARIABLE';
+helper def : SlicedVariable : String = 'SV';--'SLICED-VARIABLE';
+helper def : RelatedVariable : String = 'RelV';--'RELATED-VARIABLE';
+helper def : ReachableVariable : String = 'ReaV';--REACHABLE-VARIABLE';
+helper def : Comment : String = '//';
+helper def : Points : String = ':';
+helper def : Rule : String = 'R';--'Rule';
+helper def : Separator : String = '_';
+helper def : Granularity : String = 'G';--'Granularity';
+helper def : ReachableMethod : String = 'ReaMethod'; --'REACHABLE-METHOD';
+helper def : RelatedMethod : String = 'RelMethod'; --'RELATED-METHOD';
+helper def : RelatedStatement : String = 'RelStat'; --'RELATED-STATEMENT';
+helper def : Distance : String = 'D';--'Distance';
+
+helper context JAVA!Comment def : getRuleComments : Sequence(OclAny) =
+	self.content->regexReplaceAll(thisModule.Comment + thisModule.Rule + thisModule.Separator, thisModule.Rule + thisModule.Separator)->split(' | ')->flatten()
+		->reject(str | str = '|')
+			->collect(str | str.regexReplaceAll(thisModule.Separator + thisModule.Granularity + thisModule.Separator + '.*', ''))
+				->collect(str | Tuple{text = str, commentElement = self});
+
+helper context JAVA!Comment def : getRulePartComments : Sequence(OclAny) =
+	self.content->regexReplaceAll(thisModule.Comment + thisModule.Rule + thisModule.Separator, thisModule.Rule + thisModule.Separator)->split(' | ')->flatten()
+		->reject(str | str = '|')
+			->collect(str | Tuple{text = str, commentElement = self});
+
+helper context JAVA!Comment def : getReachableMethodComment : Sequence(OclAny) =
+	self.content->regexReplaceAll(thisModule.Comment + thisModule.ReachableMethod + thisModule.Points, thisModule.ReachableMethod + thisModule.Points)->split(' | ')->flatten()
+		->reject(str | str = '|')
+			->collect(str | Tuple{text = str, commentElement = self});
+
+helper context JAVA!Comment def : getRelatedVariableComment : Sequence(OclAny) =
+	self.content->regexReplaceAll(thisModule.Comment + thisModule.RelatedVariable + thisModule.Points, thisModule.RelatedVariable + thisModule.Points)->split(' | ')->flatten()
+		->reject(str | str = '|')
+			->collect(str | Tuple{text = str, commentElement = self});
+
+helper context JAVA!Comment def : getSlicedVariableComment : Sequence(OclAny) =
+	self.content->regexReplaceAll(thisModule.Comment + thisModule.SlicedVariable + thisModule.Points, thisModule.SlicedVariable + thisModule.Points)->split(' | ')->flatten()
+		->reject(str | str = '|')
+			->collect(str | Tuple{text = str, commentElement = self});
+
+helper context JAVA!Comment def : getRelatedStatementComment : Sequence(OclAny) =
+	self.content->regexReplaceAll(thisModule.Comment + thisModule.RelatedStatement + thisModule.Points, thisModule.RelatedStatement + thisModule.Points)->split(' | ')->flatten()
+		->reject(str | str = '|')
+			->collect(str | Tuple{text = str, commentElement = self});
+
+helper context JAVA!Comment def : isRuleComment : Boolean =
+	self.content->startsWith(thisModule.Comment + thisModule.Rule + thisModule.Separator);
+
+helper context JAVA!Comment def : isReachableMethodComment : Boolean =
+	self.content->startsWith(thisModule.Comment + thisModule.ReachableMethod + thisModule.Points);
+
+helper context JAVA!Comment def : isRelatedStatementComment : Boolean =
+	self.content->startsWith(thisModule.Comment + thisModule.RelatedStatement + thisModule.Points);
+
+helper context JAVA!Comment def : isRelatedVariableComment : Boolean =
+	self.content->startsWith(thisModule.Comment + thisModule.RelatedVariable + thisModule.Points);
+
+helper context JAVA!Comment def : isSlicedVariable : Boolean =
+	self.content->startsWith(thisModule.Comment + thisModule.SlicedVariable + thisModule.Points);
+
+helper def : ALL_RULE_COMMENTS : Sequence(OclAny) = 
+	JAVA!Comment.allInstances()->select(comment | comment.isRuleComment)
+								->collect(comment | comment.getRuleComments)->flatten()
+									->iterate(comment; tuples: Sequence(OclAny) = Sequence{} |
+										if tuples->collect(t | t.text)->exists(t | t = comment.text) then
+											tuples
+										else
+											tuples.including(Tuple{text = comment.text, commentElement = comment.commentElement})
+										endif
+	                                 );
+
+helper def : getAllPreviousStatementsInMethod(seq: Sequence(OclAny)) : Sequence(OclAny) =
+	if self.oclIsKindOf(JAVA!AbstractMethodDeclaration) then
+		seq
+	else
+		thisModule.getAllPreviousStatementsInMethod(seq->append(self))
+	endif;
+
+helper def : ALL_REACHABLE_METHOD_COMMENTS : Sequence(OclAny) =
+	JAVA!Comment.allInstances()->select(comment | comment.isReachableMethodComment)
+								->collect(comment | comment.getReachableMethodComment)->flatten();
+
+helper def : ALL_RELATED_VARIABLE_COMMENTS : Sequence(OclAny) =
+	JAVA!Comment.allInstances()->select(comment | comment.isRelatedVariableComment)
+								->collect(comment | comment.getRelatedVariableComment)->flatten();
+
+helper def : ALL_RELATED_STATEMENT_COMMENTS : Sequence(OclAny) =
+	JAVA!Comment.allInstances()->select(comment | comment.isRelatedStatementComment)
+								->collect(comment | comment.getRelatedStatementComment)->flatten();
+
+helper def : ALL_SLICED_VARIABLE_COMMENTS : Sequence(OclAny) =
+	JAVA!Comment.allInstances()->select(comment | comment.isSlicedVariable)
+								->collect(comment | comment.getSlicedVariableComment)->flatten();
+
+helper def : getAllRuleParts(start : String) : Sequence(OclAny) =
+	JAVA!Comment.allInstances()->select(comment | comment.isRuleComment)
+								 ->collect(comment | comment.getRulePartComments)->flatten()
+									->iterate(comment; tuples: Sequence(OclAny) = Sequence{} |
+										if comment.text->startsWith(start + thisModule.Separator) then
+											tuples.including(Tuple{text = comment.text, commentElement = comment.commentElement})
+										else
+											tuples	
+										endif
+	                                 );
+
+helper def : getAllReachableMethods(start : String) : Sequence(OclAny) =
+	thisModule.ALL_REACHABLE_METHOD_COMMENTS
+				->select(tuple | tuple.text.startsWith(thisModule.ReachableMethod + thisModule.Points + start))
+					->sortedBy(tuple | tuple.text.getDistance);
+
+helper def : getAllRelatedStatements(start : String, element : OclAny) : Sequence(OclAny) =
+	thisModule.ALL_RELATED_STATEMENT_COMMENTS
+				->select(tuple | tuple.text.startsWith(thisModule.RelatedStatement + thisModule.Points + start));
+
+helper def : getAllRelatedVariables(start : String) : Sequence(OclAny) =
+	thisModule.ALL_RELATED_VARIABLE_COMMENTS
+				->select(tuple | tuple.text.startsWith(thisModule.RelatedVariable + thisModule.Points + start));
+								
+helper def : getSlicedVariable(start : String) : OclAny =
+	thisModule.ALL_SLICED_VARIABLE_COMMENTS
+					->select(tuple | tuple.text.startsWith(thisModule.SlicedVariable + thisModule.Points + start))
+						->first();
+ 
+helper context OclAny def : getRelatedMethod : JAVA!AbstractMethodDeclaration =
+	if self.oclIsKindOf(JAVA!AbstractMethodDeclaration) then
+		self
+	else
+		if self.oclIsTypeOf(JAVA!Model) then
+			OclUndefined
+		else
+			self.refImmediateComposite().getRelatedMethod
+		endif
+	endif;
+
+helper context OclAny def : getClass : JAVA!ClassDeclaration =
+	if self.oclIsTypeOf(JAVA!ClassDeclaration) then
+		self
+	else
+		if self.oclIsTypeOf(JAVA!Model) then
+			OclUndefined
+		else
+			self.refImmediateComposite().getClass
+		endif
+	endif;
+
+helper context String def : getId : String =
+	self.split(thisModule.Separator)->at(3);
+
+helper context String def : getVariableName : String =
+	self.split(thisModule.Separator)->at(2);
+
+helper context String def : getGranularity : String =
+	self.split(thisModule.Separator)->at(5);
+
+helper context String def : getDistance : String =
+	self.split(thisModule.Separator)->last();
+
+helper context OclAny def : getContainedStatements : Sequence(OclAny) =
+	JAVA!Statement.allInstances()->select(stat | stat.isContained(self));
+	
+helper context OclAny def : isContained(statement : OclAny) : Boolean =
+	if self.oclIsKindOf(JAVA!AbstractMethodDeclaration) then
+		false
+	else
+		if self = statement then
+			true
+		else
+			self.refImmediateComposite().isContained(statement)
+		endif
+	endif;
+	
+
+helper context OclAny def : isInElseBranch(stop : OclAny) : Boolean =
+	if stop.elseStatement.oclIsUndefined() then
+		false
+	else
+		stop.elseStatement.getContainedStatements->exists(stat | stat = self)
+	endif;
+
+----------------------------------------------------------
+----------------------------------------------------------
+------------------------getText---------------------------
+----------------------------------------------------------
+----------------------------------------------------------
+helper context JAVA!AbstractVariablesContainer def : getText : String =
+	self.fragments->iterate(frg; output: String = '' |
+							if self.fragments->last() = frg then
+								output->concat(
+								if frg.initializer.oclIsUndefined() then
+									if self.modifier.visibility.toString() = 'none' then
+										self.type.getText + ' ' + frg.name
+									else
+										self.modifier.visibility.toString() + ' ' + self.type.getText + ' ' + frg.name
+									endif
+								else
+									if self.modifier.visibility.toString() = 'none' then
+										self.type.getText + ' ' + frg.name + ' = ' + frg.initializer.getText
+									else
+										self.modifier.visibility.toString() + self.type.getText + ' ' + frg.name + ' = ' + frg.initializer.getText
+									endif
+								endif)
+							else
+								output->concat(
+								if frg.initializer.oclIsUndefined() then
+									if self.modifier.visibility.toString() = 'none' then
+										self.type.getText + ' ' + frg.name
+									else
+										self.modifier.visibility.toString() + ' ' + self.type.getText + ' ' + frg.name
+									endif
+								else
+									if self.modifier.visibility.toString() = 'none' then
+										self.type.getText + ' ' + frg.name + ' = ' + frg.initializer.getText
+									else
+										self.modifier.visibility.toString() + self.type.getText + ' ' + frg.name + ' = ' + frg.initializer.getText
+									endif
+								endif) + ';'
+							endif
+);
+
+helper context JAVA!TypeAccess def : getText : String =
+	if self.qualifier.oclIsUndefined() then
+		self.type.getText
+	else
+		self.qualifier.getText + '.' + self.type.getText
+	endif;
+
+helper context JAVA!BooleanLiteral def : getText : String =
+	self.value.toString();
+
+helper context JAVA!NumberLiteral def : getText : String =
+	self.tokenValue.toString();
+
+helper context JAVA!NullLiteral def : getText : String =
+	'null';
+
+helper context JAVA!PostfixExpression def : getText : String =
+	self.operand.getText + self.operator.toString();
+
+helper context JAVA!ClassDeclaration def : getText : String =
+	self.name;
+
+helper context JAVA!Assignment def : getText : String =
+	self.leftHandSide.getText + ' ' + self.operator.toString() + ' ' + self.rightHandSide.getText;
+
+helper context JAVA!ExpressionStatement def : getText : String =
+	self.expression.getText;
+
+helper context JAVA!SuperConstructorInvocation def : getText : String =
+	'super(' + 
+	self.arguments->iterate(arg; output: String = '' |
+		if self.arguments->last() = arg then
+			output->concat(arg.getText)
+		else
+			output->concat(arg.getText) + ','
+		endif
+	) + ')';
+
+helper context JAVA!SingleVariableAccess def : getText : String =
+	if self.qualifier.oclIsUndefined() then
+		self.variable.name
+	else
+		self.qualifier.getText + '.' + self.variable.name
+	endif;
+
+helper context JAVA!ClassInstanceCreation def : getText : String = 
+	'new ' +  self.method.name + '(' + self.arguments->iterate(arg; output: String = '' |
+														if self.arguments->last() = arg then
+	                                                		output->concat(arg.getText)
+														else
+															output->concat(arg.getText) + ', '
+														endif
+                                                     ) + ')';
+
+helper context JAVA!ConstructorInvocation def : getText : String = 
+	'this.(' + self.arguments->iterate(arg; output: String = '' |
+			if self.arguments->last() = arg then
+        		output->concat(arg.getText)
+			else
+				output->concat(arg.getText) + ', '
+			endif
+         ) + ')'; 
+
+helper context JAVA!MethodInvocation def : getText : String =
+	let exprText : String = if self.expression.oclIsUndefined() then '' else self.expression.getText + '.' endif in
+	exprText +
+	self.method.name + '(' + self.arguments->iterate(arg; output: String = '' |
+														if self.arguments->last() = arg then
+	                                                		output->concat(arg.getText)
+														else
+															output->concat(arg.getText) + ', '
+														endif
+                                                     ) + ')';
+
+helper context JAVA!AbstractMethodDeclaration def : getText : String =
+	self.name + '(' + self.parameters->iterate(param; output: String = '' |
+											if self.parameters->last() = param then
+												param.getText
+											else
+												param.getText + ','
+											endif
+										) + ')';
+
+helper context JAVA!SingleVariableDeclaration def : getText : String =
+	self.type.getText + ' ' + self.name;
+
+helper context JAVA!PrimitiveTypeDouble def : getText : String =
+	'double';
+
+helper context JAVA!PrimitiveTypeLong def : getText : String =
+	'long';
+
+helper context JAVA!PrimitiveTypeInt def : getText : String =
+	'int';
+
+helper context JAVA!PrimitiveTypeVoid def : getText : String =
+	'void';
+
+helper context JAVA!PrimitiveTypeBoolean def : getText : String =
+	'boolean';
+
+helper context JAVA!PrimitiveTypeShort def : getText : String =
+	'short';
+
+helper context JAVA!PrimitiveTypeByte def : getText : String =
+	'byte';
+
+helper context JAVA!PrimitiveTypeChar def : getText : String =
+	'char';
+
+helper context JAVA!PrimitiveTypeFloat def : getText : String =
+	'float';
+
+helper context JAVA!ParameterizedType def : getText : String =
+	if self.typeArguments->isEmpty() then
+		self.type.getText
+	else
+		self.type.getText + 
+		'<' +
+			self.typeArguments->iterate(arg; output: String = '' |
+										if self.typeArguments->last() = arg then
+											output->concat(arg.getText)
+										else
+											output->concat(arg.getText) + ','
+										endif
+										) 
+		+ '>'
+	endif;
+
+helper context JAVA!ArrayType def : getText : String =
+	self.elementType.getText + '[]';
+
+helper context JAVA!TypeDeclaration def : getText : String =
+	self.name;
+
+helper context JAVA!Type def : getText : String =
+	self.name;
+
+helper context JAVA!IfStatement def : getText : String = 
+	'if (' + self.expression.getText + ')';
+	
+helper context JAVA!ForStatement def : getText : String =
+	'for (' + 
+			self.initializers->iterate(init; output : String = '' | if self.initializers->last() = init then
+																		output->concat(init.getText)
+																	else
+																		output->concat(init.getText) + ','
+																	endif) + ';' +
+			self.expression.getText + ';' +
+			self.updaters->iterate(upd; output : String = '' | 	if self.updaters->last() = upd then
+																	output->concat(upd.getText)
+															   	else
+															   		output->concat(upd.getText) + ','
+															  	endif) +
+	')';
+
+helper context JAVA!WhileStatement def : getText : String =
+	'while (' + self.expression.getText + ')';
+
+helper context JAVA!InstanceofExpression def : getText : String =
+	self.leftOperand.getText + ' instanceof ' + self.rightOperand.getText;
+
+helper context JAVA!InfixExpression def : getText : String =
+	self.leftOperand.getText + ' ' + self.operator.toString() + ' ' + self.rightOperand.getText;
+
+helper context OclAny def : getText : String =
+	'not_found'.debug(self.oclType().toString() + ' missing getText helper');
+
+----------------------------------------------------------
+----------------------------------------------------------
+-----------------transformation rules---------------------
+----------------------------------------------------------
+----------------------------------------------------------
+rule Model2Model {
+	from
+		s: JAVA!Model
+	to
+		t: BR!Model (
+			rules <- thisModule.ALL_RULE_COMMENTS->collect(rc | thisModule.RuleComment2Rule(rc)) 
+		)
+}
+
+lazy rule RuleComment2Rule {
+	from
+		tuple: OclAny, next: Sequence(OclAny)
+	to
+		t: BR!Rule (
+			id <- tuple.text.getId,
+			slicedVariable <- var,
+			ruleParts <- thisModule.getAllRuleParts(tuple.text)
+							->sortedBy(tuple | tuple.text.getGranularity.toInteger() * (-1))
+								->collect(rp | thisModule.RuleComment2RulePart(rp))
+		),
+		var : BR!SlicedVariable (
+			name <- tuple.text.getVariableName,
+			linkToCode <- thisModule.getSlicedVariable(tuple.text.getVariableName).commentElement.refImmediateComposite().fragments->first()
+		)
+}
+
+lazy rule RuleComment2RulePart {
+	from
+		tuple: OclAny
+	to
+		t: BR!RulePart (
+			granularity <- tuple.text.getGranularity,
+			relatedStatements <- thisModule.getAllRelatedStatements(tuple.text, tuple.commentElement.refImmediateComposite())->collect(tt | thisModule.Statement2Trace(tt.commentElement.refImmediateComposite(), tuple.commentElement.refImmediateComposite())),
+			action <- thisModule.Statement2Trace(tuple.commentElement.refImmediateComposite(), OclUndefined),
+			relatedVariables <- thisModule.getAllRelatedVariables(tuple.text)->collect(tt | thisModule.Variable2RelatedVariable(tt.commentElement.refImmediateComposite())),
+			relatedMethod <-thisModule.Method2RelatedMethod(tuple.commentElement.refImmediateComposite().getRelatedMethod),
+			reachableMethods <- thisModule.getAllReachableMethods(tuple.text)->collect(tt | thisModule.Method2ReachableMethod(tt))
+		)
+}
+
+lazy rule Method2RelatedMethod {
+	from
+		s: JAVA!AbstractMethodDeclaration
+	to
+		t: BR!RelatedMethod (
+			class <- s.getClass.name,
+			name <- s.getText
+		)
+	do {
+		t.linkToCode <- s;
+	}
+}
+
+lazy rule Method2ReachableMethod {
+	from
+		tuple: OclAny
+	to
+		t: BR!ReachableMethod (
+			class <- tuple.commentElement.refImmediateComposite().getClass.name,
+			name <- tuple.commentElement.refImmediateComposite().getText,
+			distance <- tuple.text.getDistance
+		)
+	do {
+		t.linkToCode <- tuple.commentElement.refImmediateComposite();
+	}
+}
+
+lazy rule Variable2RelatedVariable {
+	from
+		s: JAVA!AbstractVariablesContainer
+	to
+		t: BR!RelatedVariable (
+			name <- s.fragments->first().name
+		)
+	do {
+		t.linkToCode <- s;	
+	}
+}
+
+
+lazy rule Statement2Trace {
+	from
+		s: OclAny, action : OclAny
+	to
+		t: BR!Statement (
+			textContent <- 
+							if action.oclIsUndefined() then
+								s.getText
+							else
+								if s.oclIsTypeOf(JAVA!IfStatement) then
+									if action.isInElseBranch(s) then
+										'not ' + s.getText
+									else
+										s.getText
+									endif
+								else
+									s.getText
+								endif
+							endif,
+			linkToCode <- s	
+		)
+}

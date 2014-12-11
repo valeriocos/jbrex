@@ -1,0 +1,330 @@
+-- @nsURI XML=http://www.eclipse.org/am3/2007/XML
+-- @nsURI GraphML=http://modeling.inria.fr/GraphML
+
+-- ******************************************************************************
+-- Copyright (c) 2009 INRIA. 
+-- All rights reserved. This program and the accompanying materials 
+-- are made available under the terms of the Eclipse Public License v1.0 
+-- which accompanies this distribution, and is available at
+-- http://www.eclipse.org/legal/epl-v10.html
+-- 
+-- Contributors: 
+-- 	INRIA - Initial implementation
+--  
+-- ******************************************************************************
+
+--@authors Guillaume Doux
+
+module GraphML2XML; -- Module Template
+create OUT : XML from IN : GraphML;
+
+rule Root2Root {
+	from 
+		s 	: 	GraphML!Root
+	to 
+		root 	: 	XML!Root (
+			name <- 'graphml',
+			children <- Sequence{xmlns, schemaLoc, GraphML!Key.allInstancesFrom('IN'), s.graphs}->flatten()
+		),
+		xmlns 	: 	XML!Attribute (
+			name <- 'xmlns:xsi',
+			value <- 'http://www.w3.org/2001/XMLSchema-instance'
+		),
+		schemaLoc 	: 	XML!Attribute (
+			name <- 'xsi:schemaLocation',
+			value <- 'http://graphml.graphdrawing.org/xmlnshttp://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd'
+		)
+}
+
+helper def:  getRoot : GraphML!Root = GraphML!Root.allInstancesFrom('IN')->first();
+
+rule Keys2Keys {
+	from 
+		s	:	GraphML!Key 
+	to
+		key : XML!Element (
+			name <- 'key'
+		),
+		id : XML!Attribute (
+			name <- 'id',
+			value <- s.id,
+			parent <-key
+		),
+		fo : XML!Attribute (
+			name <- 'for',
+			value <- s."for".toString(),
+			parent <-key
+		),
+		an : XML!Attribute (
+			name <- 'attr.name',
+			value <- s.attrName,
+			parent <-key
+		),
+		id2 : XML!Attribute (
+			name <- 'attr.type',
+			value <- s.type.toString(),
+			parent <-key
+		)
+}
+
+
+
+rule Graph2Graph {
+	from
+		s	:	GraphML!Graph 
+	to
+		graph : XML!Element (
+			name <- 'graph'
+		),
+		id : XML!Attribute (
+			name <- 'id',
+			value <- s.id,
+			parent <- graph
+		),
+		edg : XML!Attribute (
+			name <- 'edgedefault',
+			value <- s.edgeDefault.toString(),
+			parent <-graph
+		)
+}
+
+helper def: allElements : Sequence(GraphML!Element) =
+	GraphML!Element.allInstancesFrom('IN');
+
+helper def: allEdges : Sequence(GraphML!Edge) =
+	GraphML!Edge.allInstancesFrom('IN');
+
+helper def: allGraphs : Sequence(GraphML!Graph) =
+	GraphML!Graph.allInstancesFrom('IN');
+
+helper def: allNodes : Sequence(GraphML!Node) =
+	GraphML!Node.allInstancesFrom('IN');
+		
+helper def: allNodeWithSG : Sequence(GraphML!Node) =
+	thisModule.allNodes->select(c | not c.subgraph.oclIsUndefined());
+		
+helper context GraphML!Element def: getParent: GraphML!Element =
+	thisModule.allGraphs->select(c | c.contents->includes(self))
+	->union(thisModule.allNodeWithSG->select(c | c.subgraph=self))->first();
+
+helper def: firstGraph : GraphML!Graph = 
+	thisModule.allGraphs->first();
+
+rule Edge2Edge1 {
+	from
+		s	:	GraphML!Edge (s.sourceport.oclIsUndefined() and s.targetport.oclIsUndefined())
+	to
+		edge : XML!Element (
+			name <- 'edge',
+			parent <- s.refImmediateComposite(),
+			children <- Sequence{s.datas}->flatten()
+		),
+		id1 : XML!Attribute (
+			name <- 'id',
+			value <- s.id,
+			parent <- edge
+		),
+		source : XML!Attribute (
+			name <- 'source',
+			value <- s.source.id,
+			parent <- edge
+		),
+		target : XML!Attribute (
+			name <- 'target',
+			value <- s.target.id,
+			parent <- edge
+		)
+}
+
+rule Edge2Edge2 {
+	from
+		s	:	GraphML!Edge ((not s.sourceport.oclIsUndefined()) and (not s.targetport.oclIsUndefined()))
+	to
+		edge : XML!Element (
+			name <- 'edge',
+			parent <- s.refImmediateComposite(),
+			children <- Sequence{s.datas}->flatten()
+		),
+		id1 : XML!Attribute (
+			name <- 'id',
+			value <- s.id,
+			parent <- edge
+		),
+		source : XML!Attribute (
+			name <- 'source',
+			value <- s.source.id,
+			parent <- edge
+		),
+		target : XML!Attribute (
+			name <- 'target',
+			value <- s.target.id,
+			parent <- edge
+		),
+		sourceport : XML!Attribute (
+			name <- 'sourceport',
+			value <- s.sourceport.name,
+			parent <- edge
+		),
+		targetport : XML!Attribute (
+			name <- 'targetport',
+			value <- s.targetport.name,
+			parent <- edge
+		)
+}
+
+rule Edge2Edge3 {
+	from
+		s	:	GraphML!Edge (s.sourceport.oclIsUndefined() and (not s.targetport.oclIsUndefined()))
+	to
+		edge : XML!Element (
+			name <- 'edge',
+			parent <- s.refImmediateComposite(),
+			children <- Sequence{s.datas}->flatten()
+		),
+		id1 : XML!Attribute (
+			name <- 'id',
+			value <- s.id,
+			parent <- edge
+		),
+		source : XML!Attribute (
+			name <- 'source',
+			value <- s.source.id,
+			parent <- edge
+		),
+		target : XML!Attribute (
+			name <- 'target',
+			value <- s.target.id,
+			parent <- edge
+		),
+		targetport : XML!Attribute (
+			name <- 'targetport',
+			value <- s.targetport.name,
+			parent <- edge
+		)
+}
+
+rule Edge2Edge4 {
+	from
+		s	:	GraphML!Edge ((not s.sourceport.oclIsUndefined()) and s.targetport.oclIsUndefined())
+	to
+		edge : XML!Element (
+			name <- 'edge',
+			parent <- s.refImmediateComposite(),
+			children <- Sequence{s.datas}->flatten()
+		),
+		id1 : XML!Attribute (
+			name <- 'id',
+			value <- s.id,
+			parent <- edge
+		),
+		source : XML!Attribute (
+			name <- 'source',
+			value <- s.source.id,
+			parent <- edge
+		),
+		target : XML!Attribute (
+			name <- 'target',
+			value <- s.target.id,
+			parent <- edge
+		),
+		sourceport : XML!Attribute (
+			name <- 'sourceport',
+			value <- s.sourceport.name,
+			parent <- edge
+		)
+}
+
+rule HyperEdge2HyperEdge {
+	from
+		s	:	GraphML!HyperEdge
+	to
+		edge : XML!Element (
+			name <- 'hyperedge',
+			parent <- s.refImmediateComposite(),
+			children <- s.endpoints
+		)
+}
+
+rule Endpoints2Endpoints {
+	from
+		s	:	GraphML!EndPoint	(s.port.oclIsUndefined())
+	to
+		endp : XML!Element (
+			name <- 'endpoint'
+		),
+		node : XML!Attribute (
+			name <- 'node',
+			value <- s.node.name,
+			parent <- endp
+		)
+}
+
+rule Endpoints2Endpoints2 {
+	from
+		s	:	GraphML!EndPoint	(not s.port.oclIsUndefined())
+	to
+		endp : XML!Element (
+			name <- 'endpoint'
+		),
+		node : XML!Attribute (
+			name <- 'node',
+			value <- s.node.name,
+			parent <- endp
+		),
+		port : XML!Attribute (
+			name <- 'port',
+			value <- s.port.name,
+			parent <- endp
+		)
+}
+
+rule Node2Node {
+	from
+		s	:	GraphML!Node
+	to
+		node : XML!Element (
+			name <- 'node',
+			parent <- s.refImmediateComposite(),
+			children <- Sequence{s.ports, s.datas}->flatten()
+		),
+		id : XML!Attribute (
+			name <- 'id',
+			value <- s.id,
+			parent <- node
+		)
+}
+
+rule Port2Port {
+	from
+		s	:	GraphML!Port
+	to
+		endp : XML!Element (
+			name <- 'port'
+		),
+		node : XML!Attribute (
+			name <- 'name',
+			value <- s.name,
+			parent <- endp
+		)
+}
+
+
+
+rule Data2Data {
+	from
+		s	:	GraphML!Data
+	to
+		data : XML!Element (
+			name <- 'data',
+			parent <- s.refImmediateComposite()
+		),
+		key : XML!Attribute (
+			name <- 'key',
+			value <- s.key.toString(),
+			parent <- data
+		),
+		value :	XML!Text (
+			parent <- data,
+			value <- s.value.toString()
+		)
+}
