@@ -152,7 +152,9 @@ helper context JAVA!AbstractMethodDeclaration def : getInterfaceAbstractMethodDe
 	let class : JAVA!ClassDeclaration = self.getClassDeclaration in
 	if not class.oclIsUndefined() then
 		if not class.superInterfaces->isEmpty() then
-			class.superInterfaces->collect(inter | inter.type.bodyDeclarations)->flatten()
+			class.superInterfaces
+							->select(inter | inter.type.oclIsKindOf(JAVA!AbstractTypeDeclaration))
+								->collect(inter | inter.type.bodyDeclarations)->flatten()
 									->select(bd | bd.name = self.name)
 										->select(bd | bd.parameters->size() = self.parameters->size())
 											->select(bd | bd.typeParameters->forAll(tp | self.typeParameters->exists(stp | stp.oclType() = tp.oclType())))
@@ -577,8 +579,8 @@ helper context JAVA!AbstractMethodDeclaration def : isInContainerSet : Boolean =
 	thisModule.getContainerAbstractMethodDeclarationsForRules->exists(amd | amd = self);
 
 helper context JAVA!AbstractMethodDeclaration def : getIDsAndGranularityInformationForRelevantMethod : Sequence(String) =
-	self.body.statements
-	--thisModule.ALL_STATEMENTS->select(stat | stat.getAbstractMethodDeclaration = self)
+	--self.body.statements
+	thisModule.ALL_STATEMENTS->select(stat | stat.getAbstractMethodDeclaration = self)
 									->select(stat | stat.isInGranularitySet)
 										->collect(stat | stat.getIDsAndGranularityInformation)->flatten()->asSet()->asSequence();
 

@@ -165,7 +165,7 @@ helper context OclAny def : getContainedStatements : Sequence(OclAny) =
 	JAVA!Statement.allInstances()->select(stat | stat.isContained(self));
 	
 helper context OclAny def : isContained(statement : OclAny) : Boolean =
-	if self.oclIsKindOf(JAVA!AbstractMethodDeclaration) then
+	if self.oclIsKindOf(JAVA!AbstractMethodDeclaration) or self.oclIsTypeOf(JAVA!Model) then
 		false
 	else
 		if self = statement then
