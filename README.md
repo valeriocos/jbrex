@@ -8,13 +8,15 @@ How to use the tool
 ===================
 -Download Eclipse Modeling Project (http://eclipse.org/modeling/)
 
--Copy in the workspace the four projects (org.eclipse.m2m.atl.engine.emfvm, JBrex, brex.path.model, fr.inria.portolan.visualization.prefuse)
+-Install the plugins "MoDisco" and "ATL" through the Eclipse Install Manager (Help => Install New Software, select the location "http://download.eclipse.org/releases/mars" and click on the entry "Modeling").
+
+-Copy the four projects (org.eclipse.m2m.atl.engine.emfvm, JBrex, brex.path.model, fr.inria.portolan.visualization.prefuse) to the workspace and import them (File => Import => General => Existing Projects into Workspace)
 
 -Right click on the JBrex folder and run it as Eclipse Application (it will open a new workspace, ignore the errors)
 
 -Import or select a Java project in the new workspace
 
--Choose in the code of the selected project the variables to analyse (on top of the variable(s) you want to analyse add the comment //SELECT-VARIABLE)
+-In the code of the selected project, choose the variables to analyse (add the comment //SELECT-VARIABLE on top of the declarations of those variables)
 
 -Click on the button "start JBREX" in the tool bar
 
