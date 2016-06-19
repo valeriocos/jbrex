@@ -1,4 +1,4 @@
-jbrex
+JBREX
 =====
 
 A business rule extraction tool for Java applications.
@@ -8,13 +8,15 @@ How to use the tool
 ===================
 -Download Eclipse Modeling Project (http://eclipse.org/modeling/)
 
--Copy in the workspace the four projects (org.eclipse.m2m.atl.engine.emfvm, JBrex, brex.path.model, fr.inria.portolan.visualization.prefuse)
+-Install the plugins "MoDisco" and "ATL" through the Eclipse Install Manager (Help => Install New Software, select the location "http://download.eclipse.org/releases/mars" and click on the entry "Modeling").
+
+-Copy the four projects (org.eclipse.m2m.atl.engine.emfvm, JBrex, brex.path.model, fr.inria.portolan.visualization.prefuse) to the workspace and import them (File => Import => General => Existing Projects into Workspace)
 
 -Right click on the JBrex folder and run it as Eclipse Application (it will open a new workspace, ignore the errors)
 
 -Import or select a Java project in the new workspace
 
--Choose in the code of the selected project the variables to analyse (on top of the variable(s) you want to analyse add the comment //SELECT-VARIABLE)
+-In the code of the selected project, choose the variables to analyse (add the comment //SELECT-VARIABLE on top of the declarations of those variables)
 
 -Click on the button "start JBREX" in the tool bar
 
@@ -22,21 +24,21 @@ How to use the tool
 
 Output
 ===================
-in the selected project you will find:
+In the selected project you will find:
 
--the model of the project and its version containing the business rule annotations 
+-The model of the project and its version containing the business rule annotations 
 	
--a new project called "the-name-of-your-project"_annotated will be created in the workspace. It will contain:
+-A new project called "the-name-of-your-project"_annotated will be created in the workspace. It will contain:
 
--the Java files of your project annotated with business rule information, 
+-The Java files of your project annotated with business rule information, 
 
--a text file called rules.txt that contains the rules identified
+-A text file called rules.txt that contains the rules identified
 
--two graph files that show the connections between the rules (ruleConnectionGraph) and the connections between the parts composing the rules (rulePartConnectionGraph)
+-Two graph files that show the connections between the rules (ruleConnectionGraph) and the connections between the parts composing the rules (rulePartConnectionGraph)
 
--a file (.*_br.xmi) containing the model representing the identified rules
+-A file (.*_br.xmi) containing the model representing the identified rules
 
--several files .*(_graphml|_trace|_portland).xmi containing the models used to generated the graph artifacts
+-Several files .*(_graphml|_trace|_portland).xmi containing the models used to generated the graph artifacts
 
 How to interpret the annotations
 ================================
@@ -77,17 +79,17 @@ The path between two nodes in the graph can be highlighted by clicking on them. 
 
 ruleConnectionGraph.graphml:
 
-	the nodes are the rules, the text inside is the code composing the rule
+	The nodes are the rules, the text inside is the code composing the rule
 	
-	the edges are the connections between rules that share each other some part of their code
+	The edges are the connections between rules
 	
 	
 rulePartConnectionGraph.graphml:
 
-	the nodes are the rule parts of a rule, the text inside is the code composing the rule part
+	The nodes are the chunks composing a rule
 	
-	rule parts that belong to the same rule are colored with the same color
+	The chunks that belong to the same rule are colored with the same color
 	
-	each rule part is connected by an edge to the next rule part
+	Each chunk is connected by an edge to the next chunk
 	
-	rule parts used by different rules are connected together
+	Chunks used by different rules are connected together
