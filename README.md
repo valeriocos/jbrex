@@ -1,4 +1,4 @@
-jbrex
+JBREX
 =====
 
 A business rule extraction tool for Java applications.
@@ -24,21 +24,21 @@ How to use the tool
 
 Output
 ===================
-in the selected project you will find:
+In the selected project you will find:
 
--the model of the project and its version containing the business rule annotations 
+-The model of the project and its version containing the business rule annotations 
 	
--a new project called "the-name-of-your-project"_annotated will be created in the workspace. It will contain:
+-A new project called "the-name-of-your-project"_annotated will be created in the workspace. It will contain:
 
--the Java files of your project annotated with business rule information, 
+-The Java files of your project annotated with business rule information, 
 
--a text file called rules.txt that contains the rules identified
+-A text file called rules.txt that contains the rules identified
 
--two graph files that show the connections between the rules (ruleConnectionGraph) and the connections between the parts composing the rules (rulePartConnectionGraph)
+-Two graph files that show the connections between the rules (ruleConnectionGraph) and the connections between the parts composing the rules (rulePartConnectionGraph)
 
--a file (.*_br.xmi) containing the model representing the identified rules
+-A file (.*_br.xmi) containing the model representing the identified rules
 
--several files .*(_graphml|_trace|_portland).xmi containing the models used to generated the graph artifacts
+-Several files .*(_graphml|_trace|_portland).xmi containing the models used to generated the graph artifacts
 
 How to interpret the annotations
 ================================
@@ -79,17 +79,17 @@ The path between two nodes in the graph can be highlighted by clicking on them. 
 
 ruleConnectionGraph.graphml:
 
-	the nodes are the rules, the text inside is the code composing the rule
+	The nodes are the rules, the text inside is the code composing the rule
 	
-	the edges are the connections between rules that share each other some part of their code
+	The edges are the connections between rules
 	
 	
 rulePartConnectionGraph.graphml:
 
-	the nodes are the rule parts of a rule, the text inside is the code composing the rule part
+	The nodes are the chunks composing a rule
 	
-	rule parts that belong to the same rule are colored with the same color
+	The chunks that belong to the same rule are colored with the same color
 	
-	each rule part is connected by an edge to the next rule part
+	Each chunk is connected by an edge to the next chunk
 	
-	rule parts used by different rules are connected together
+	Chunks used by different rules are connected together
